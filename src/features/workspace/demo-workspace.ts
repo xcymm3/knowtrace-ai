@@ -1,0 +1,81 @@
+export const workspaceDemo = {
+  project: {
+    code: "CL-024",
+    status: "进行中",
+    name: "通勤保温杯选品调研",
+    description: "围绕轻量化、密封性与通勤场景，整理自有候选与竞品资料，形成可回溯的选品建议。",
+    platform: "抖音电商",
+    audience: "城市通勤人群",
+    materialState: "2 份已索引 · 1 份处理中",
+  },
+  taskStages: [
+    { label: "资料入库", detail: "商品参数表与竞品截图已保存", state: "done" },
+    { label: "文本解析", detail: "Excel 工作表与 PDF 文本已提取", state: "done" },
+    { label: "向量索引", detail: "正在为竞品评价摘要建立检索片段", state: "active" },
+    { label: "报告生成", detail: "等待全部资料进入 READY 状态", state: "waiting" },
+  ],
+  products: [
+    {
+      role: "自有候选",
+      name: "轻量随行保温杯",
+      brand: "自有品牌 · 候选 A",
+      price: "¥59.90",
+      attribute: "450 ml · 316 不锈钢",
+      coverage: "2 / 2 资料就绪",
+      tags: ["通勤", "轻量", "防漏"],
+    },
+    {
+      role: "竞品",
+      name: "一键开合保温杯",
+      brand: "竞品品牌 · 样本 B",
+      price: "¥49.90",
+      attribute: "480 ml · 单手开合",
+      coverage: "1 / 1 资料就绪",
+      tags: ["单手开合", "大容量", "通勤"],
+    },
+    {
+      role: "竞品",
+      name: "极简咖啡随行杯",
+      brand: "竞品品牌 · 样本 C",
+      price: "¥79.00",
+      attribute: "380 ml · 陶瓷涂层",
+      coverage: "0 / 1 等待索引",
+      tags: ["咖啡", "简约", "礼赠"],
+    },
+  ],
+  materials: [
+    { format: "XLSX", name: "候选商品参数表.xlsx", detail: "商品规格 · 定价 · 自有候选", state: "已索引" },
+    { format: "PDF", name: "竞品评价摘要.pdf", detail: "通勤场景 · 漏水反馈 · 评价摘录", state: "已索引" },
+    { format: "PNG", name: "竞品主图截图.png", detail: "页面结构 · 卖点顺序 · 视觉对比", state: "处理中" },
+  ],
+  evidence: {
+    excerpt: "评价中反复出现“放包里不漏”和“单手能开”的表述，说明密封性与开合方式是通勤场景的重要对比维度。",
+    source: "竞品评价摘要.pdf · 通勤使用反馈",
+    location: "片段 03 · 字符 286–332",
+  },
+  report: {
+    title: "通勤保温杯：首轮选品结论",
+    status: "等待审核",
+    summary: "结论基于当前已索引资料形成。待竞品主图截图处理完成后，可补充卖点结构和详情页表达的对比。",
+    findings: [
+      {
+        type: "优先验证",
+        title: "将防漏能力作为首要卖点",
+        content: "当前评价资料中，包内漏水与通勤携带直接相关，建议在样品验证和详情页表达中优先确认该能力。",
+        citation: "引用 · 竞品评价摘要.pdf / 片段 03",
+      },
+      {
+        type: "价格带",
+        title: "自有候选位于竞品中段",
+        content: "已录入样本中，自有候选价格高于单手开合竞品、低于咖啡随行杯，需结合材质与密封体验解释价差。",
+        citation: "引用 · 候选商品参数表.xlsx / 工作表 1",
+      },
+      {
+        type: "待补证据",
+        title: "主图卖点层级尚未完成比较",
+        content: "竞品截图仍在处理，当前不对主图结构或视觉策略作结论，避免将未解析信息写入报告。",
+        citation: "来源 · 竞品主图截图.png / 任务处理中",
+      },
+    ],
+  },
+} as const;

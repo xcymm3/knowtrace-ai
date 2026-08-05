@@ -1,147 +1,166 @@
-# 数据模型约定（Beta v1）
+# CommerceLens AI 数据模型（MVP v1）
 
-本文件是后续 Prisma Schema、数据库迁移和 API 实现的单一依据。所有时间字段使用 UTC；主键使用 UUID；新闻内容只保存必要元数据和合规短摘录，不保存或重新发布全文。
+本文件定义 CommerceLens AI 的业务模型，是 Supabase Migration、FastAPI Schema 和前端类型的共同依据。
 
-## 设计原则
+## 设计目标
 
-- `StoryCluster`（新闻事件）是产品的核心实体：同一事件的多篇报道聚合到同一个事件中。
-- 每条用于首页或问答的可核验事实都以 `Claim` 表达，并至少关联一个 `ClaimCitation`。
-- `Digest` 是按日期发布的不可变版本；改版时新增版本，不覆盖已发布内容。
-- 匿名对话始终绑定一个 `StoryCluster`，仅保存匿名会话哈希，不保存用户身份信息。
-- 仅 `PUBLISHED` 状态的事件、日报和已验证事实可直接面向用户展示。
+- 将一次选品调研作为独立、可追溯的 `ResearchProject` 管理。
+- 将自有商品与竞品统一建模为 `Product`，仅通过角色区分，便于横向比较。
+- 原始 Excel、PDF、文本、商品图片和截图存入 Supabase Storage；数据库只保存其元数据与对象路径。
+- 任何报告结论都可回溯到具体资料与知识库文本片段，禁止只有模型结论而没有依据。
+- 异步解析、Embedding、比较和报告生成均记录为 `ResearchTask`，以支持进度、失败原因和重试。
+- MVP 不接入 Supabase Auth；所有数据仅由 FastAPI 使用 Service Role 访问。表仍启用 RLS，为后续接入用户隔离预留边界。
 
 ## 实体关系
 
 ```mermaid
 erDiagram
-  NewsSource ||--o{ Article : publishes
-  StoryCluster ||--o{ ClusterArticle : contains
-  Article ||--o{ ClusterArticle : belongs_to
-  StoryCluster ||--o{ Claim : has
-  Claim ||--o{ ClaimCitation : supported_by
-  Article ||--o{ ClaimCitation : cited_by
-  Digest ||--o{ DigestItem : contains
-  StoryCluster ||--o{ DigestItem : appears_in
-  StoryCluster ||--o{ ChatThread : contextualizes
-  ChatThread ||--o{ ChatMessage : contains
-  ChatMessage ||--o{ ChatMessageCitation : cites
-  Article ||--o{ ChatMessageCitation : referenced_by
+  ResearchProject ||--o{ Product : contains
+  ResearchProject ||--o{ BrandProfile : uses
+  ResearchProject ||--o{ SourceDocument : owns
+  Product ||--o{ SourceDocument : contextualizes
+  SourceDocument ||--o{ KnowledgeChunk : yields
+  ResearchProject ||--o{ ResearchTask : runs
+  ResearchProject ||--o{ SelectionReport : produces
+  SelectionReport ||--o{ ReportFinding : contains
+  ReportFinding ||--o{ FindingCitation : supports
+  KnowledgeChunk ||--o{ FindingCitation : cited_by
+  SelectionReport ||--o{ ReviewFeedback : receives
+  ReportFinding ||--o{ ReviewFeedback : receives
 ```
 
 ## 枚举
 
-| 枚举 | 值 | 用途 |
+| 枚举 | 值 | 说明 |
 | --- | --- | --- |
-| `SourceKind` | `OFFICIAL`、`WIRE`、`MEDIA` | 来源类型 |
-| `ArticleLanguage` | `ZH`、`EN`、`OTHER` | 文章语言 |
-| `ArticleStatus` | `ACTIVE`、`SUPPRESSED` | 是否允许继续使用文章 |
-| `StoryStatus` | `CANDIDATE`、`REVIEW`、`PUBLISHED`、`ARCHIVED` | 事件处理与发布状态 |
-| `ClaimKind` | `FACT`、`ANALYSIS` | 可核验事实或带限定条件的分析 |
-| `ClaimStatus` | `DRAFT`、`VERIFIED`、`DISPUTED`、`REJECTED` | 事实审核状态 |
-| `DigestStatus` | `DRAFT`、`PUBLISHED`、`SUPERSEDED` | 日报版本状态 |
-| `ChatMessageRole` | `USER`、`ASSISTANT`、`SYSTEM` | 对话消息角色 |
+| `ProjectStatus` | `DRAFT`、`ACTIVE`、`ARCHIVED` | 调研项目生命周期 |
+| `ProductRole` | `OWN`、`COMPETITOR` | 自有候选商品或竞品 |
+| `DocumentKind` | `PRODUCT_SHEET`、`COMPETITOR_SHEET`、`BRAND_GUIDE`、`PLATFORM_RULE`、`REVIEW_EXPORT`、`PRODUCT_IMAGE`、`COMPETITOR_SCREENSHOT`、`OTHER` | 上传资料类型 |
+| `DocumentStatus` | `PENDING`、`PROCESSING`、`READY`、`FAILED` | 文件解析状态 |
+| `TaskType` | `PARSE_DOCUMENT`、`GENERATE_EMBEDDINGS`、`COMPARE_PRODUCTS`、`GENERATE_REPORT` | 异步任务类型 |
+| `TaskStatus` | `QUEUED`、`RUNNING`、`SUCCEEDED`、`FAILED`、`CANCELLED` | 异步任务状态 |
+| `ReportStatus` | `DRAFT`、`READY_FOR_REVIEW`、`APPROVED`、`REJECTED`、`SUPERSEDED` | 报告状态 |
+| `FindingType` | `RECOMMENDATION`、`DIFFERENTIATOR`、`RISK`、`AUDIENCE_INSIGHT`、`CONTENT_STRATEGY` | 报告结论分类 |
+| `ReviewDecision` | `APPROVED`、`REJECTED`、`NEEDS_REVISION` | 人工反馈结果 |
 
 ## 核心实体
 
-### `NewsSource`
+### `research_projects`
 
-受控新闻来源白名单。
+一次完整的选品或竞品调研。一个项目包含多个商品、资料、任务与报告。
 
-| 字段 | 说明 | 约束 |
+| 字段 | 说明 |
+| --- | --- |
+| `id` | UUID 主键 |
+| `name` | 项目名称，例如“夏季防晒新品选品” |
+| `category` | 目标品类，可为空 |
+| `target_platform` | 目标平台，可为空 |
+| `target_audience` | 目标人群描述，可为空 |
+| `status` | 项目状态，默认 `DRAFT` |
+| `created_at` / `updated_at` | UTC 审计时间 |
+
+### `brand_profiles`
+
+项目使用的品牌约束。实际品牌手册以 `source_documents` 保存，结构化约束可直接参与检索过滤和报告生成。
+
+| 字段 | 说明 |
+| --- | --- |
+| `project_id` | 所属调研项目 |
+| `name` | 品牌或店铺名称 |
+| `tone` | 品牌表达风格，可为空 |
+| `forbidden_terms` | 禁用词数组 |
+| `guidelines` | 结构化品牌约束 JSON |
+
+### `products`
+
+项目内的候选商品与竞品。MVP 中不依赖外部平台抓取，资料通过人工录入或授权上传进入系统。
+
+| 字段 | 说明 |
+| --- | --- |
+| `project_id` | 所属调研项目 |
+| `role` | `OWN` 或 `COMPETITOR` |
+| `name` / `brand_name` | 商品与品牌名称 |
+| `external_url` | 人工提供或授权获取的商品链接，可为空 |
+| `price` / `currency` | 当前观察到的价格与币种，可为空 |
+| `description` | 商品简介或卖点原文 |
+| `attributes` | 规格、销量区间、评价数等结构化补充信息 JSON |
+
+### `source_documents`
+
+原始调研材料的元数据。文件本体位于 Supabase Storage 的 `research-assets` Bucket。
+
+| 字段 | 说明 |
+| --- | --- |
+| `project_id` | 所属调研项目 |
+| `product_id` | 关联商品，可为空；品牌手册或平台规则可不绑定商品 |
+| `kind` | 文件类型 |
+| `file_name` / `mime_type` / `size_bytes` | 原始文件信息 |
+| `storage_bucket` / `storage_path` | Supabase Storage 对象定位 |
+| `checksum` | 去重与完整性校验 |
+| `status` / `error_message` | 解析状态与安全错误摘要 |
+| `metadata` | 页数、表名、图像尺寸、导入来源等 JSON |
+
+### `knowledge_chunks`
+
+文件解析后的可检索片段。MVP 固定采用 1536 维 Embedding；后续切换模型时应增加 `embedding_model` 与迁移策略，而不是混用不同维度。第 7 步还为内容建立 `search_vector`，以语义分数 75% + 关键词分数 25% 排序；结果只返回 `READY` 资料，并带回原始文件与片段位置。
+
+| 字段 | 说明 |
+| --- | --- |
+| `document_id` | 来源资料 |
+| `chunk_index` | 文件内稳定排序 |
+| `content` | 已清洗的文本片段 |
+| `embedding` | `vector(1536)`，用于语义检索 |
+| `search_vector` | 从 `content` 自动生成的全文检索向量，用于关键词检索 |
+| `token_count` | 切片长度，用于控制上下文 |
+| `metadata` | 页码、工作表、单元格范围、OCR 置信度等 JSON |
+
+### `research_tasks`
+
+FastAPI 创建、Redis Worker 执行的异步任务记录。任务状态是前端轮询与 SSE 进度的唯一来源。
+
+| 字段 | 说明 |
+| --- | --- |
+| `project_id` / `document_id` | 任务上下文 |
+| `task_type` / `status` | 任务类型及生命周期 |
+| `progress` | 0–100 的进度值 |
+| `attempt_count` / `max_attempts` | 重试控制 |
+| `input_payload` / `output_payload` | 不含密钥的任务输入输出摘要 JSON |
+| `error_message` | 脱敏错误摘要 |
+| `started_at` / `completed_at` | 任务耗时计算依据 |
+
+### `selection_reports`、`report_findings` 与 `finding_citations`
+
+一份报告可产生多个结论。结论通过引用关系关联到知识库片段，确保“推荐优先级、差异化机会和风险提示”都能展示来源。
+
+| 实体 | 关键字段 | 说明 |
 | --- | --- | --- |
-| `id` | UUID 主键 | 主键 |
-| `name` | 来源名称 | 非空 |
-| `domain` | 来源主域名 | 唯一 |
-| `kind` | 来源类型 | `SourceKind` |
-| `trustScore` | 初始可信度权重，范围 0–100 | 默认 50 |
-| `isEnabled` | 是否参与采集 | 默认 `true` |
-| `createdAt` / `updatedAt` | 审计时间 | 非空 |
+| `selection_reports` | `project_id`、`title`、`summary`、`status`、`generation_metadata` | 报告正文与生成上下文 |
+| `report_findings` | `report_id`、`type`、`title`、`content`、`confidence`、`position` | 一条可审核的报告结论 |
+| `finding_citations` | `finding_id`、`chunk_id`、`excerpt`、`position` | 结论与材料片段的证据关系 |
 
-### `Article`
+### `review_feedback`
 
-一条已标准化的外部报道，仅保存可用于溯源的元数据和短摘录。
+运营或类目负责人对报告整体或单条结论给出的审核结果。MVP 不要求登录，因此 `reviewer_label` 仅保存显示名称；后续接入 Auth 后替换为用户外键。
 
-| 字段 | 说明 | 约束 |
-| --- | --- | --- |
-| `id` | UUID 主键 | 主键 |
-| `sourceId` | 所属来源 | 外键 → `NewsSource` |
-| `canonicalUrl` | 去除追踪参数后的原文链接 | 唯一 |
-| `externalId` | 来源提供的稳定 ID，可为空 | 与来源组成唯一索引 |
-| `title` | 原始标题 | 非空 |
-| `excerpt` | 合规短摘录，可为空 | 不存全文 |
-| `publishedAt` | 原文发布时间 | 非空、索引 |
-| `language` | 文章语言 | `ArticleLanguage` |
-| `contentHash` | 标题、时间、摘录形成的去重哈希 | 索引 |
-| `status` | 文章可用状态 | `ArticleStatus`，默认 `ACTIVE` |
-| `ingestedAt` | 采集时间 | 非空 |
-| `createdAt` / `updatedAt` | 审计时间 | 非空 |
+| 字段 | 说明 |
+| --- | --- |
+| `report_id` / `finding_id` | 反馈范围；至少关联其中之一 |
+| `decision` | 通过、驳回或要求修改 |
+| `comment` | 人工原因或补充信息 |
+| `reviewer_label` | MVP 审核者显示名称 |
 
-### `StoryCluster`
+## 完整性规则
 
-一个独立国际事件，是首页卡片、引用档案和问答上下文的共同载体。
+1. 仅 `READY` 状态的 `source_documents` 可以产生 `knowledge_chunks`。
+2. `knowledge_chunks` 的 `(document_id, chunk_index)` 必须唯一；Embedding 为空的片段不得参与语义检索。
+3. 每个 `report_findings` 至少有一条 `finding_citations` 才能进入 `READY_FOR_REVIEW` 状态。
+4. `finding_citations.excerpt` 必须是对应片段的受控短摘录，不保存或输出无关文件全文。
+5. 失败任务不可自动覆盖已成功报告；重试应创建新任务或增加尝试计数并保留错误摘要。
+6. 文件对象路径必须以 `project_id/` 开头，避免跨项目错误引用。
 
-| 字段 | 说明 | 约束 |
-| --- | --- | --- |
-| `id` | UUID 主键 | 主键 |
-| `headline` | 事件标题 | 非空 |
-| `summary` | 面向用户的简短摘要 | 可为空，发布前必填 |
-| `whyItMatters` | 影响说明 | 可为空，发布前必填 |
-| `importanceScore` | 事件重要性分数 | 默认 0、索引 |
-| `status` | 事件状态 | `StoryStatus`，默认 `CANDIDATE` |
-| `startedAt` | 已知最早发生时间 | 可为空 |
-| `lastEventAt` | 最近进展时间 | 可为空、索引 |
-| `createdAt` / `updatedAt` | 审计时间 | 非空 |
+## 后续映射
 
-### `ClusterArticle`
-
-文章与事件的多对多关系，保留聚类置信度和人工修订结果。
-
-| 字段 | 说明 | 约束 |
-| --- | --- | --- |
-| `storyId` | 事件 ID | 外键 → `StoryCluster` |
-| `articleId` | 文章 ID | 外键 → `Article` |
-| `relevanceScore` | 与事件的关联分数 | 0–1 |
-| `isPrimary` | 是否为事件主来源 | 默认 `false` |
-| `createdAt` | 建立关联时间 | 非空 |
-
-复合主键：`(storyId, articleId)`。
-
-### `Claim` 与 `ClaimCitation`
-
-`Claim` 表示摘要或答案中的一个最小可核验陈述；`ClaimCitation` 保存它与新闻证据的对应关系。
-
-| 实体 | 字段 | 说明与约束 |
-| --- | --- | --- |
-| `Claim` | `id`、`storyId`、`text`、`kind`、`status`、`createdAt`、`updatedAt` | `storyId` 外键；默认 `DRAFT`；仅 `VERIFIED` 可自动发布 |
-| `ClaimCitation` | `id`、`claimId`、`articleId`、`supportingExcerpt`、`citationOrder`、`createdAt` | 两个外键；`(claimId, citationOrder)` 唯一；证据摘录必须来自关联文章 |
-
-### `Digest` 与 `DigestItem`
-
-日报将某一天的首页内容固定为一个版本，防止事件后续更新改变历史版本。
-
-| 实体 | 字段 | 说明与约束 |
-| --- | --- | --- |
-| `Digest` | `id`、`digestDate`、`revision`、`status`、`publishedAt`、`createdAt`、`updatedAt` | `(digestDate, revision)` 唯一；同一天最多一个 `PUBLISHED` 版本 |
-| `DigestItem` | `id`、`digestId`、`storyId`、`position`、`headlineSnapshot`、`summarySnapshot`、`impactSnapshot`、`createdAt` | `(digestId, storyId)` 与 `(digestId, position)` 唯一；快照字段保留发布时文本 |
-
-### `ChatThread`、`ChatMessage` 与 `ChatMessageCitation`
-
-匿名对话仅围绕一个事件进行；助手回答使用独立引用关系保存文章依据。
-
-| 实体 | 字段 | 说明与约束 |
-| --- | --- | --- |
-| `ChatThread` | `id`、`storyId`、`anonymousSessionHash`、`expiresAt`、`createdAt`、`updatedAt` | `(storyId, anonymousSessionHash)` 唯一；默认保留 14 天 |
-| `ChatMessage` | `id`、`threadId`、`role`、`content`、`sequence`、`createdAt` | `(threadId, sequence)` 唯一；按序读取上下文 |
-| `ChatMessageCitation` | `id`、`messageId`、`articleId`、`supportingExcerpt`、`citationOrder`、`createdAt` | `(messageId, citationOrder)` 唯一；仅助手消息可创建 |
-
-## 数据完整性规则
-
-1. 发布 `DigestItem` 前，其 `StoryCluster.status` 必须为 `PUBLISHED`。
-2. 自动生成的首页标题、摘要和影响说明，至少应能关联到一个 `VERIFIED` 的 `Claim`；重大结论至少有两个独立来源或一个权威官方来源。
-3. `Article.status = SUPPRESSED` 后，不得再作为新日报或新回答的引用；历史记录保留但标记为不可用。
-4. 一个 `ChatThread` 只能访问其 `storyId` 对应的事件档案，禁止跨事件混入上下文。
-5. 到达 `expiresAt` 的匿名对话及其消息、消息引用应由后台任务清理；事件、日报和文章仍按内容保留策略保存。
-
-## 下一步映射
-
-第 5 步将在 Prisma 中建立上述枚举、表、外键、复合唯一约束与索引，并生成第一份数据库迁移。
+- 第 3 步：在 Supabase 创建 `pgvector` 扩展、Bucket、RLS 与本文件对应的 Migration。
+- 第 4 步：FastAPI Pydantic Schema 与 API 使用本文件的命名及状态枚举。
+- 第 7 步：Worker 按 `source_documents → knowledge_chunks → finding_citations` 实现可追溯 RAG。
+- 第 8 步：已实现项目、商品、竞品对比、选品报告与人工反馈接口；报告以规则方式生成，且每条结论均有引用。

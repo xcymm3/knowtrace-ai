@@ -20,8 +20,8 @@ const newsreader = Newsreader({
 });
 
 export const metadata: Metadata = {
-  title: "今日国际局势｜局势索引",
-  description: "以可追溯摘要呈现今日国际局势重点。",
+  title: "CommerceLens AI｜电商选品与竞品调研",
+  description: "以可追溯资料支持电商选品、竞品对比与卖点策略决策。",
   icons: {
     icon: "/icon.svg",
   },

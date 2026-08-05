@@ -1,8 +1,8 @@
 {
-  "scannedAt": "2026-07-28",
+  "scannedAt": "2026-08-05",
   "framework": "Next.js 16.2.11 with App Router and Tailwind CSS v4",
   "fonts": ["Geist", "Geist Mono", "Newsreader"],
-  "palette": "Existing OKLCH token system in tokens.css: pale mint paper, ink navy, coral accent",
+  "palette": "Existing OKLCH token system in tokens.css: warm paper, umber accent, dark brown ink",
   "spacing": "Semantic 4px-based CSS custom-property scale",
   "motion": "motion-cut; no animation library detected",
   "globalStyles": "src/app/globals.css imports Tailwind and applies the project token foundation"

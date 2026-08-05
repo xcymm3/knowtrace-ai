@@ -1,0 +1,1 @@
+"""CommerceLens FastAPI application package."""

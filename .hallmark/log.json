@@ -1,6 +1,18 @@
 {
   "builds": [
     {
+      "date": "2026-08-05",
+      "scope": "app",
+      "genre": "modern-minimal",
+      "theme": "custom",
+      "theme_axes": "warm paper / geometric sans / umber",
+      "macrostructure": "Workbench",
+      "nav": "N5 floating pill",
+      "footer": "Ft2 inline rule",
+      "enrichment": "none",
+      "notes": "将首页改为 CommerceLens 选品调研工作台，展示项目、商品池、资料索引、任务进度、检索证据与待审核报告；明确当前为演示数据。"
+    },
+    {
       "date": "2026-08-04",
       "scope": "app",
       "genre": "modern-minimal",

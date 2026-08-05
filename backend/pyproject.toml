@@ -1,0 +1,33 @@
+[project]
+name = "commercelens-api"
+version = "0.1.0"
+description = "FastAPI domain service for CommerceLens AI."
+requires-python = ">=3.12"
+dependencies = [
+  "arq>=0.26,<1.0",
+  "fastapi[standard]>=0.115,<1.0",
+  "httpx>=0.28,<1.0",
+  "openpyxl>=3.1,<4.0",
+  "pillow>=11.0,<12.0",
+  "pydantic-settings>=2.6,<3.0",
+  "pypdf>=5.0,<6.0",
+  "supabase>=2.18,<3.0",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3,<9.0",
+  "ruff>=0.8,<1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
