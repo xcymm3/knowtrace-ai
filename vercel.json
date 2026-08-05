@@ -1,9 +1,28 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "crons": [
+  "services": {
+    "frontend": {
+      "root": ".",
+      "framework": "nextjs"
+    },
+    "backend": {
+      "root": "backend",
+      "entrypoint": "app.main:app",
+      "framework": "fastapi"
+    }
+  },
+  "rewrites": [
     {
-      "path": "/api/cron/digest",
-      "schedule": "0 16 * * *"
+      "source": "/api/(.*)",
+      "destination": {
+        "service": "backend"
+      }
+    },
+    {
+      "source": "/(.*)",
+      "destination": {
+        "service": "frontend"
+      }
     }
   ]
 }
