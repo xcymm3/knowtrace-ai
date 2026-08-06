@@ -12,7 +12,7 @@ def _project(project_id: UUID) -> dict[str, object]:
         "id": str(project_id),
         "name": "通勤咖啡杯选品",
         "category": "家居",
-        "target_platform": "抖音",
+        "target_platform": "快手",
         "target_audience": "上班族",
         "status": "ACTIVE",
         "created_at": "2026-08-05T00:00:00+00:00",

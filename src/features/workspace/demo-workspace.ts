@@ -3,8 +3,8 @@ export const workspaceDemo = {
     code: "CL-024",
     status: "进行中",
     name: "通勤保温杯选品调研",
-    description: "围绕轻量化、密封性与通勤场景，整理自有候选与竞品资料，形成可回溯的选品建议。",
-    platform: "抖音电商",
+    description: "围绕轻量化、密封性与通勤场景，整理自有候选与竞品资料，形成适合快手直播讲解的可回溯选品建议。",
+    platform: "快手电商",
     audience: "城市通勤人群",
     materialState: "2 份已索引 · 1 份处理中",
   },
@@ -54,14 +54,14 @@ export const workspaceDemo = {
     location: "片段 03 · 字符 286–332",
   },
   report: {
-    title: "通勤保温杯：首轮选品结论",
+    title: "快手直播间：通勤保温杯首轮选品结论",
     status: "等待审核",
     summary: "结论基于当前已索引资料形成。待竞品主图截图处理完成后，可补充卖点结构和详情页表达的对比。",
     findings: [
       {
         type: "优先验证",
         title: "将防漏能力作为首要卖点",
-        content: "当前评价资料中，包内漏水与通勤携带直接相关，建议在样品验证和详情页表达中优先确认该能力。",
+        content: "当前评价资料中，包内漏水与通勤携带直接相关，建议在样品验证与直播讲解中优先证明该能力。",
         citation: "引用 · 竞品评价摘要.pdf / 片段 03",
       },
       {
