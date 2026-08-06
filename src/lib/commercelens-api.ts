@@ -108,7 +108,17 @@ function apiBaseUrl() {
   // Vercel routes /api/* to the FastAPI service through vercel.json. Keeping
   // this empty in production prevents a developer's localhost URL from being
   // baked into the browser bundle. Local setups still provide localhost:8000.
-  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
+  const configuredUrl = (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
+  const isBrowserOnLocalhost =
+    typeof window !== "undefined" && ["localhost", "127.0.0.1", "::1"].includes(window.location.hostname);
+  const targetsLocalhost = /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(configuredUrl);
+
+  // A NEXT_PUBLIC_* value is baked in at build time. If an old Vercel setting
+  // still contains localhost, ignore it for remote visitors and use the
+  // same-origin service rewrite instead.
+  if (!isBrowserOnLocalhost && targetsLocalhost) return "";
+
+  return configuredUrl;
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
