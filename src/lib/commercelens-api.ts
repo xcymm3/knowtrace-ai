@@ -105,7 +105,10 @@ export class ApiError extends Error {
 }
 
 function apiBaseUrl() {
-  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000").replace(/\/$/, "");
+  // Vercel routes /api/* to the FastAPI service through vercel.json. Keeping
+  // this empty in production prevents a developer's localhost URL from being
+  // baked into the browser bundle. Local setups still provide localhost:8000.
+  return (process.env.NEXT_PUBLIC_API_BASE_URL ?? "").replace(/\/$/, "");
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -114,7 +117,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers.set("Content-Type", "application/json");
   }
 
-  const response = await fetch(`${apiBaseUrl()}${path}`, { ...init, headers });
+  let response: Response;
+  try {
+    response = await fetch(`${apiBaseUrl()}${path}`, { ...init, headers });
+  } catch {
+    throw new ApiError("无法连接后端服务，请检查 API 地址与部署状态。");
+  }
   if (!response.ok) {
     const payload = (await response.json().catch(() => null)) as
       | { error?: { code?: string; message?: string } }
