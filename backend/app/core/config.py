@@ -15,7 +15,7 @@ class Settings(BaseSettings):
     app_name: str = "CommerceLens API"
     app_environment: str = "development"
     api_v1_prefix: str = "/api/v1"
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
 
     database_url: str | None = None
     supabase_url: str | None = None
