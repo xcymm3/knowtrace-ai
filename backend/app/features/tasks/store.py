@@ -19,6 +19,19 @@ class SupabaseTaskStore:
             raise ApiError(404, "TASK_NOT_FOUND", "未找到对应的后台任务。")
         return response.data[0]
 
+    def list_project_tasks(self, project_id: UUID) -> list[dict[str, Any]]:
+        response = (
+            self._client.table("research_tasks")
+            .select(
+                "id,project_id,document_id,task_type,status,progress,attempt_count,max_attempts,"
+                "output_payload,error_message,started_at,completed_at"
+            )
+            .eq("project_id", str(project_id))
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
+
     def get_document(self, document_id: UUID) -> dict[str, Any]:
         response = (
             self._client.table("source_documents").select("*").eq("id", str(document_id)).execute()

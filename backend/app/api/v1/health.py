@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
@@ -20,7 +20,7 @@ class ReadinessResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse, summary="Liveness probe")
-async def get_health(settings: Settings = get_settings()) -> HealthResponse:
+async def get_health(settings: Settings = Depends(get_settings)) -> HealthResponse:
     """Confirm the API process is running without touching external services."""
     return HealthResponse(
         status="ok",
@@ -35,7 +35,7 @@ async def get_health(settings: Settings = get_settings()) -> HealthResponse:
     status_code=status.HTTP_200_OK,
     summary="Configuration readiness probe",
 )
-async def get_readiness(settings: Settings = get_settings()) -> ReadinessResponse:
+async def get_readiness(settings: Settings = Depends(get_settings)) -> ReadinessResponse:
     """Report configuration state without exposing connection strings or keys."""
     supabase_is_ready = settings.supabase_is_configured
     redis_is_ready = settings.redis_is_configured

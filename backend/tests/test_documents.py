@@ -22,6 +22,11 @@ class FakeDocumentStore:
     def project_exists(self, project_id: UUID) -> bool:
         return project_id == self.project_id
 
+    def list_project_documents(self, project_id: UUID) -> list[dict[str, object]]:
+        if project_id != self.project_id:
+            return []
+        return self.documents
+
     def upload_file(self, path: str, _content: bytes, _mime_type: str) -> None:
         self.uploaded_paths.append(path)
 
@@ -154,3 +159,39 @@ def test_upload_rejects_an_unsupported_file_type() -> None:
     assert response.status_code == 415
     assert response.json()["error"]["code"] == "DOCUMENT_TYPE_UNSUPPORTED"
     assert fake_store.uploaded_paths == []
+
+
+def test_list_documents_returns_project_materials() -> None:
+    project_id = uuid4()
+    fake_store = FakeDocumentStore(project_id)
+    fake_store.documents.append(
+        {
+            "id": str(uuid4()),
+            "project_id": str(project_id),
+            "product_id": None,
+            "kind": "REVIEW_EXPORT",
+            "file_name": "reviews.csv",
+            "mime_type": "text/csv",
+            "size_bytes": 128,
+            "status": "READY",
+            "error_message": None,
+            "metadata": {"parse": {"parser": "csv"}},
+            "created_at": "2026-08-06T00:00:00Z",
+            "updated_at": "2026-08-06T00:00:00Z",
+        }
+    )
+    service = DocumentIngestionService(
+        store=fake_store,
+        queue=FakeTaskQueue(),
+        settings=Settings(document_max_upload_size_bytes=1_000_000),
+    )
+    app.dependency_overrides[get_document_ingestion_service] = lambda: service
+    client = TestClient(app)
+
+    try:
+        response = client.get(f"/api/v1/projects/{project_id}/documents")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()[0]["file_name"] == "reviews.csv"

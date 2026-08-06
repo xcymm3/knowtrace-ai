@@ -11,7 +11,9 @@ FastAPI 是浏览器访问 CommerceLens 数据与文件的唯一入口。Next.js
 | `GET` | `/api/v1/ready` | 配置就绪探针；仅返回 Supabase 是否完整配置 |
 | `GET` | `/api/v1/openapi.json` | OpenAPI 3 规范 |
 | `POST` | `/api/v1/projects/{project_id}/documents` | 上传调研资料，写入 Storage、创建资料记录与待解析任务 |
+| `GET` | `/api/v1/projects/{project_id}/documents` | 获取项目已导入资料 |
 | `GET` | `/api/v1/tasks/{task_id}` | 读取解析、Embedding 或报告任务状态 |
+| `GET` | `/api/v1/tasks/projects/{project_id}` | 获取项目的解析任务记录 |
 | `GET` | `/api/v1/tasks/{task_id}/events` | 通过 SSE 推送任务状态变化 |
 | `POST` | `/api/v1/projects/{project_id}/search` | 对已索引资料做混合检索，并返回可追溯引用 |
 | `POST` | `/api/v1/projects` | 创建选品调研项目 |

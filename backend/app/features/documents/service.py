@@ -42,6 +42,12 @@ class DocumentIngestionService:
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", raw_name).strip(".-")
         return safe_name[:180] or "uploaded-file"
 
+    async def list_documents(self, project_id: UUID) -> list[dict[str, object]]:
+        exists = await anyio.to_thread.run_sync(self._store.project_exists, project_id)
+        if not exists:
+            raise ApiError(404, "PROJECT_NOT_FOUND", "未找到对应的调研项目。")
+        return await anyio.to_thread.run_sync(self._store.list_project_documents, project_id)
+
     async def ingest(self, upload: UploadInput) -> DocumentUploadResponse:
         validate_document_type(upload.mime_type, upload.file_name)
         if len(upload.content) == 0:

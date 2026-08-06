@@ -26,6 +26,9 @@ class FakeTaskStore:
     def get_task(self, _task_id: object) -> dict[str, object]:
         return self._task
 
+    def list_project_tasks(self, _project_id: object) -> list[dict[str, object]]:
+        return [self._task]
+
 
 def test_task_status_and_sse_completion_event() -> None:
     task_id = uuid4()
@@ -44,3 +47,18 @@ def test_task_status_and_sse_completion_event() -> None:
     assert stream_response.status_code == 200
     assert "event: progress" in stream_response.text
     assert "event: complete" in stream_response.text
+
+
+def test_list_project_tasks() -> None:
+    task_id = uuid4()
+    project_id = uuid4()
+    app.dependency_overrides[get_task_store] = lambda: FakeTaskStore(str(task_id), str(project_id))
+    client = TestClient(app)
+
+    try:
+        response = client.get(f"/api/v1/tasks/projects/{project_id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()[0]["id"] == str(task_id)

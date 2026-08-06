@@ -27,6 +27,16 @@ async def get_task(
     return await _get_task_snapshot(store, task_id)
 
 
+@router.get(
+    "/projects/{project_id}", response_model=list[TaskStatusResponse], summary="List project tasks"
+)
+async def list_project_tasks(
+    project_id: UUID, store: SupabaseTaskStore = Depends(get_task_store)
+) -> list[TaskStatusResponse]:
+    tasks = await anyio.to_thread.run_sync(store.list_project_tasks, project_id)
+    return [TaskStatusResponse.model_validate(task) for task in tasks]
+
+
 async def task_event_stream(store: SupabaseTaskStore, task_id: UUID) -> AsyncIterator[str]:
     """Poll the task record for up to one minute and emit only changed snapshots."""
     previous_payload: str | None = None

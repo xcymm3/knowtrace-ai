@@ -12,6 +12,8 @@ from app.core.errors import ApiError
 class DocumentStore(Protocol):
     def project_exists(self, project_id: UUID) -> bool: ...
 
+    def list_project_documents(self, project_id: UUID) -> list[dict[str, Any]]: ...
+
     def upload_file(self, path: str, content: bytes, mime_type: str) -> None: ...
 
     def create_source_document(self, data: dict[str, Any]) -> dict[str, Any]: ...
@@ -38,6 +40,19 @@ class SupabaseDocumentStore:
             self._client.table("research_projects").select("id").eq("id", str(project_id)).execute()
         )
         return bool(response.data)
+
+    def list_project_documents(self, project_id: UUID) -> list[dict[str, Any]]:
+        response = (
+            self._client.table("source_documents")
+            .select(
+                "id,project_id,product_id,kind,file_name,mime_type,size_bytes,status,"
+                "error_message,metadata,created_at,updated_at"
+            )
+            .eq("project_id", str(project_id))
+            .order("created_at", desc=True)
+            .execute()
+        )
+        return response.data or []
 
     def upload_file(self, path: str, content: bytes, mime_type: str) -> None:
         self._client.storage.from_(self._storage_bucket).upload(

@@ -26,6 +26,21 @@ class DocumentUploadResponse(BaseModel):
     task_status: str
 
 
+class SourceDocumentResponse(BaseModel):
+    id: UUID
+    project_id: UUID
+    product_id: UUID | None
+    kind: DocumentKind
+    file_name: str
+    mime_type: str
+    size_bytes: int
+    status: str
+    error_message: str | None
+    metadata: dict[str, object]
+    created_at: str
+    updated_at: str
+
+
 class ParsedDocumentPreview(BaseModel):
     text: str = Field(
         description="Deterministically extracted text; OCR is deferred for image-only files."

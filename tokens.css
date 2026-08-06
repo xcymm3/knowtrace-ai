@@ -28,10 +28,10 @@
   --color-tile-3: oklch(64% 0.055 148);
   --color-tile-4: oklch(61% 0.075 20);
 
-  --font-display: var(--font-geist-sans), "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  --font-body: var(--font-geist-sans), "Noto Sans SC", "Microsoft YaHei", sans-serif;
-  --font-reading: var(--font-newsreader), "Noto Serif SC", "Songti SC", serif;
-  --font-mono: var(--font-geist-mono), "Sarasa Mono SC", monospace;
+  --font-display: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-reading: "Noto Serif SC", "Songti SC", Georgia, serif;
+  --font-mono: "Sarasa Mono SC", Consolas, monospace;
 
   --text-xs: 0.6875rem;
   --text-sm: 0.8125rem;

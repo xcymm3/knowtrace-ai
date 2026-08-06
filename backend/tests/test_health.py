@@ -21,7 +21,13 @@ def test_health_returns_liveness_payload() -> None:
     }
 
 
-def test_readiness_is_degraded_without_supabase_configuration() -> None:
+def test_readiness_is_degraded_without_supabase_configuration(monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("SUPABASE_URL", "")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "")
+    monkeypatch.setenv("REDIS_URL", "")
+    get_settings.cache_clear()
+
     response = client.get("/api/v1/ready")
 
     assert response.status_code == 200
