@@ -138,7 +138,7 @@ export function WorkspaceClient() {
     setIsSubmitting(true);
     setError(null);
     try {
-      form.set("kind", "OTHER");
+      form.set("kind", "GENERAL");
       const response = await knowTraceApi.uploadDocument(projectId, form);
       event.currentTarget.reset();
       await loadWorkspace(projectId);

@@ -10,17 +10,15 @@ from app.features.documents.schemas import (
 )
 from app.features.documents.service import DocumentIngestionService, UploadInput
 
-router = APIRouter(prefix="/projects/{project_id}/documents", tags=["documents"])
+router = APIRouter(prefix="/workspaces/{workspace_id}/documents", tags=["documents"])
 
 
-@router.get(
-    "", response_model=list[SourceDocumentResponse], summary="List project research materials"
-)
+@router.get("", response_model=list[SourceDocumentResponse], summary="List workspace documents")
 async def list_documents(
-    project_id: UUID,
+    workspace_id: UUID,
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
 ) -> list[SourceDocumentResponse]:
-    documents = await service.list_documents(project_id)
+    documents = await service.list_documents(workspace_id)
     return [SourceDocumentResponse.model_validate(document) for document in documents]
 
 
@@ -28,13 +26,12 @@ async def list_documents(
     "",
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload research material",
+    summary="Upload a knowledge document",
 )
 async def upload_document(
-    project_id: UUID,
+    workspace_id: UUID,
     file: UploadFile = File(description="TXT, CSV, XLSX, PDF, JPG, PNG or WEBP research material."),
-    kind: DocumentKind = Form(),
-    product_id: UUID | None = Form(default=None),
+    kind: DocumentKind = Form(default=DocumentKind.GENERAL),
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
 ) -> DocumentUploadResponse:
     content = await file.read()
@@ -42,8 +39,7 @@ async def upload_document(
 
     return await service.ingest(
         UploadInput(
-            project_id=project_id,
-            product_id=product_id,
+            workspace_id=workspace_id,
             kind=kind,
             file_name=file.filename or "uploaded-file",
             mime_type=file.content_type or "application/octet-stream",

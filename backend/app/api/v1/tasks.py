@@ -28,12 +28,14 @@ async def get_task(
 
 
 @router.get(
-    "/projects/{project_id}", response_model=list[TaskStatusResponse], summary="List project tasks"
+    "/workspaces/{workspace_id}",
+    response_model=list[TaskStatusResponse],
+    summary="List workspace tasks",
 )
-async def list_project_tasks(
-    project_id: UUID, store: SupabaseTaskStore = Depends(get_task_store)
+async def list_workspace_tasks(
+    workspace_id: UUID, store: SupabaseTaskStore = Depends(get_task_store)
 ) -> list[TaskStatusResponse]:
-    tasks = await anyio.to_thread.run_sync(store.list_project_tasks, project_id)
+    tasks = await anyio.to_thread.run_sync(store.list_workspace_tasks, workspace_id)
     return [TaskStatusResponse.model_validate(task) for task in tasks]
 
 

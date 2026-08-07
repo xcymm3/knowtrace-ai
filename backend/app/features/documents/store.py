@@ -10,9 +10,9 @@ from app.core.errors import ApiError
 
 
 class DocumentStore(Protocol):
-    def project_exists(self, project_id: UUID) -> bool: ...
+    def workspace_exists(self, workspace_id: UUID) -> bool: ...
 
-    def list_project_documents(self, project_id: UUID) -> list[dict[str, Any]]: ...
+    def list_workspace_documents(self, workspace_id: UUID) -> list[dict[str, Any]]: ...
 
     def upload_file(self, path: str, content: bytes, mime_type: str) -> None: ...
 
@@ -35,20 +35,20 @@ class SupabaseDocumentStore:
         self._client = client
         self._storage_bucket = storage_bucket
 
-    def project_exists(self, project_id: UUID) -> bool:
+    def workspace_exists(self, workspace_id: UUID) -> bool:
         response = (
-            self._client.table("research_projects").select("id").eq("id", str(project_id)).execute()
+            self._client.table("workspaces").select("id").eq("id", str(workspace_id)).execute()
         )
         return bool(response.data)
 
-    def list_project_documents(self, project_id: UUID) -> list[dict[str, Any]]:
+    def list_workspace_documents(self, workspace_id: UUID) -> list[dict[str, Any]]:
         response = (
-            self._client.table("source_documents")
+            self._client.table("workspace_documents")
             .select(
-                "id,project_id,product_id,kind,file_name,mime_type,size_bytes,status,"
+                "id,workspace_id,kind,file_name,mime_type,size_bytes,status,"
                 "error_message,metadata,created_at,updated_at"
             )
-            .eq("project_id", str(project_id))
+            .eq("workspace_id", str(workspace_id))
             .order("created_at", desc=True)
             .execute()
         )
@@ -62,13 +62,13 @@ class SupabaseDocumentStore:
         )
 
     def create_source_document(self, data: dict[str, Any]) -> dict[str, Any]:
-        response = self._client.table("source_documents").insert(data).execute()
+        response = self._client.table("workspace_documents").insert(data).execute()
         if not response.data:
-            raise ApiError(502, "DOCUMENT_CREATE_FAILED", "资料记录创建失败。")
+            raise ApiError(502, "DOCUMENT_CREATE_FAILED", "知识资料记录创建失败。")
         return response.data[0]
 
     def create_parse_task(self, data: dict[str, Any]) -> dict[str, Any]:
-        response = self._client.table("research_tasks").insert(data).execute()
+        response = self._client.table("processing_tasks").insert(data).execute()
         if not response.data:
             raise ApiError(502, "TASK_CREATE_FAILED", "资料解析任务创建失败。")
         return response.data[0]

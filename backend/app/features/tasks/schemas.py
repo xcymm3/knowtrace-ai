@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 class TaskStatusResponse(BaseModel):
     id: UUID
-    project_id: UUID
+    workspace_id: UUID
     document_id: UUID | None
     task_type: str
     status: Literal["QUEUED", "RUNNING", "SUCCEEDED", "FAILED", "CANCELLED"]

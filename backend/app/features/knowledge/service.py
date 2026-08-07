@@ -16,12 +16,11 @@ from app.features.knowledge.schemas import (
 class KnowledgeStore(Protocol):
     def search(
         self,
-        project_id: UUID,
+        workspace_id: UUID,
         query_embedding: list[float],
         query_text: str,
         limit: int,
         document_kind: str | None,
-        product_id: UUID | None,
     ) -> list[dict[str, object]]: ...
 
 
@@ -31,19 +30,19 @@ class KnowledgeSearchService:
         self._embeddings = embeddings
 
     async def search(
-        self, project_id: UUID, request: KnowledgeSearchRequest
+        self, workspace_id: UUID, request: KnowledgeSearchRequest
     ) -> KnowledgeSearchResponse:
         vector = (await self._embeddings.embed([request.query]))[0]
         records = await asyncio.to_thread(
             self._store.search,
-            project_id,
+            workspace_id,
             vector,
             request.query,
             request.limit,
             request.document_kind.value if request.document_kind else None,
-            request.product_id,
         )
         return KnowledgeSearchResponse(
+            workspace_id=workspace_id,
             query=request.query,
             hits=[self._to_hit(record) for record in records],
         )
@@ -62,7 +61,6 @@ class KnowledgeSearchService:
                 document_id=record["document_id"],  # type: ignore[arg-type]
                 file_name=str(record["file_name"]),
                 kind=record["kind"],  # type: ignore[arg-type]
-                product_id=record.get("product_id"),  # type: ignore[arg-type]
                 chunk_index=int(safe_metadata.get("chunkIndex", 0)),
                 start_char=safe_metadata.get("startChar"),  # type: ignore[arg-type]
                 end_char=safe_metadata.get("endChar"),  # type: ignore[arg-type]

@@ -6,12 +6,10 @@ from app.features.documents.store import SupabaseDocumentStore, create_supabase_
 from app.features.knowledge.embeddings import OpenAICompatibleEmbeddingProvider
 from app.features.knowledge.service import KnowledgeSearchService
 from app.features.knowledge.store import SupabaseKnowledgeStore
-from app.features.projects.service import ProjectService
-from app.features.projects.store import SupabaseProjectStore
-from app.features.reports.service import ReportService
-from app.features.reports.store import SupabaseReportStore
 from app.features.tasks.queue import ArqTaskQueue
 from app.features.tasks.store import SupabaseTaskStore
+from app.features.workspaces.service import WorkspaceService
+from app.features.workspaces.store import SupabaseWorkspaceStore
 
 
 @lru_cache
@@ -44,12 +42,6 @@ def get_knowledge_search_service() -> KnowledgeSearchService:
 
 
 @lru_cache
-def get_project_service() -> ProjectService:
+def get_workspace_service() -> WorkspaceService:
     settings = get_settings()
-    return ProjectService(store=SupabaseProjectStore(create_supabase_client(settings)))
-
-
-@lru_cache
-def get_report_service() -> ReportService:
-    settings = get_settings()
-    return ReportService(store=SupabaseReportStore(create_supabase_client(settings)))
+    return WorkspaceService(store=SupabaseWorkspaceStore(create_supabase_client(settings)))

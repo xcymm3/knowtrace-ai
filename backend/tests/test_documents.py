@@ -13,17 +13,17 @@ from app.main import app
 
 
 class FakeDocumentStore:
-    def __init__(self, project_id: UUID) -> None:
-        self.project_id = project_id
+    def __init__(self, workspace_id: UUID) -> None:
+        self.workspace_id = workspace_id
         self.uploaded_paths: list[str] = []
         self.documents: list[dict[str, object]] = []
         self.tasks: list[dict[str, object]] = []
 
-    def project_exists(self, project_id: UUID) -> bool:
-        return project_id == self.project_id
+    def workspace_exists(self, workspace_id: UUID) -> bool:
+        return workspace_id == self.workspace_id
 
-    def list_project_documents(self, project_id: UUID) -> list[dict[str, object]]:
-        if project_id != self.project_id:
+    def list_workspace_documents(self, workspace_id: UUID) -> list[dict[str, object]]:
+        if workspace_id != self.workspace_id:
             return []
         return self.documents
 
@@ -104,8 +104,8 @@ def test_parse_empty_pdf_marks_document_for_ocr() -> None:
 
 
 def test_upload_creates_pending_document_and_parse_task() -> None:
-    project_id = uuid4()
-    fake_store = FakeDocumentStore(project_id)
+    workspace_id = uuid4()
+    fake_store = FakeDocumentStore(workspace_id)
     fake_queue = FakeTaskQueue()
     service = DocumentIngestionService(
         store=fake_store,
@@ -117,8 +117,8 @@ def test_upload_creates_pending_document_and_parse_task() -> None:
 
     try:
         response = client.post(
-            f"/api/v1/projects/{project_id}/documents",
-            data={"kind": "COMPETITOR_SHEET"},
+            f"/api/v1/workspaces/{workspace_id}/documents",
+            data={"kind": "DATASET"},
             files={"file": ("competitor.csv", "商品,价格\n竞品A,129".encode(), "text/csv")},
         )
     finally:
@@ -126,18 +126,18 @@ def test_upload_creates_pending_document_and_parse_task() -> None:
 
     assert response.status_code == 201
     payload = response.json()
-    assert payload["project_id"] == str(project_id)
+    assert payload["workspace_id"] == str(workspace_id)
     assert payload["status"] == "PENDING"
     assert payload["task_status"] == "QUEUED"
-    assert fake_store.uploaded_paths[0].startswith(f"{project_id}/")
+    assert fake_store.uploaded_paths[0].startswith(f"{workspace_id}/")
     assert fake_store.documents[0]["storage_path"] == fake_store.uploaded_paths[0]
     assert fake_store.tasks[0]["task_type"] == "PARSE_DOCUMENT"
     assert fake_queue.task_ids == [UUID(payload["task_id"])]
 
 
 def test_upload_rejects_an_unsupported_file_type() -> None:
-    project_id = uuid4()
-    fake_store = FakeDocumentStore(project_id)
+    workspace_id = uuid4()
+    fake_store = FakeDocumentStore(workspace_id)
     fake_queue = FakeTaskQueue()
     service = DocumentIngestionService(
         store=fake_store,
@@ -149,8 +149,8 @@ def test_upload_rejects_an_unsupported_file_type() -> None:
 
     try:
         response = client.post(
-            f"/api/v1/projects/{project_id}/documents",
-            data={"kind": "OTHER"},
+            f"/api/v1/workspaces/{workspace_id}/documents",
+            data={"kind": "GENERAL"},
             files={"file": ("payload.exe", b"unsafe", "application/octet-stream")},
         )
     finally:
@@ -161,15 +161,14 @@ def test_upload_rejects_an_unsupported_file_type() -> None:
     assert fake_store.uploaded_paths == []
 
 
-def test_list_documents_returns_project_materials() -> None:
-    project_id = uuid4()
-    fake_store = FakeDocumentStore(project_id)
+def test_list_documents_returns_workspace_materials() -> None:
+    workspace_id = uuid4()
+    fake_store = FakeDocumentStore(workspace_id)
     fake_store.documents.append(
         {
             "id": str(uuid4()),
-            "project_id": str(project_id),
-            "product_id": None,
-            "kind": "REVIEW_EXPORT",
+            "workspace_id": str(workspace_id),
+            "kind": "DATASET",
             "file_name": "reviews.csv",
             "mime_type": "text/csv",
             "size_bytes": 128,
@@ -189,7 +188,7 @@ def test_list_documents_returns_project_materials() -> None:
     client = TestClient(app)
 
     try:
-        response = client.get(f"/api/v1/projects/{project_id}/documents")
+        response = client.get(f"/api/v1/workspaces/{workspace_id}/documents")
     finally:
         app.dependency_overrides.clear()
 

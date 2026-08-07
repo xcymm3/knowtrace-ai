@@ -4,9 +4,7 @@ export type TaskStatus = "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "CANCEL
 export interface WorkspaceProject {
   id: string;
   name: string;
-  category: string | null;
-  target_platform: string | null;
-  target_audience: string | null;
+  description: string | null;
   status: WorkspaceStatus;
   created_at: string;
   updated_at: string;
@@ -14,8 +12,7 @@ export interface WorkspaceProject {
 
 export interface KnowledgeDocument {
   id: string;
-  project_id: string;
-  product_id: string | null;
+  workspace_id: string;
   kind: string;
   file_name: string;
   mime_type: string;
@@ -29,7 +26,7 @@ export interface KnowledgeDocument {
 
 export interface ProcessingTask {
   id: string;
-  project_id: string;
+  workspace_id: string;
   document_id: string | null;
   task_type: string;
   status: TaskStatus;
@@ -69,15 +66,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const knowTraceApi = {
-  listWorkspaces: () => request<WorkspaceProject[]>("/api/v1/projects"),
+  listWorkspaces: () => request<WorkspaceProject[]>("/api/v1/workspaces"),
   createWorkspace: (name: string) =>
-    request<WorkspaceProject>("/api/v1/projects", {
+    request<WorkspaceProject>("/api/v1/workspaces", {
       method: "POST",
-      body: JSON.stringify({ name, category: null, target_platform: null, target_audience: null }),
+      body: JSON.stringify({ name }),
     }),
-  listDocuments: (workspaceId: string) => request<KnowledgeDocument[]>(`/api/v1/projects/${workspaceId}/documents`),
-  listTasks: (workspaceId: string) => request<ProcessingTask[]>(`/api/v1/tasks/projects/${workspaceId}`),
+  listDocuments: (workspaceId: string) => request<KnowledgeDocument[]>(`/api/v1/workspaces/${workspaceId}/documents`),
+  listTasks: (workspaceId: string) => request<ProcessingTask[]>(`/api/v1/tasks/workspaces/${workspaceId}`),
   uploadDocument: (workspaceId: string, formData: FormData) =>
-    request<{ task_id: string }>(`/api/v1/projects/${workspaceId}/documents`, { method: "POST", body: formData }),
+    request<{ task_id: string }>(`/api/v1/workspaces/${workspaceId}/documents`, { method: "POST", body: formData }),
   taskEvents: (taskId: string) => new EventSource(`/api/v1/tasks/${taskId}/events`),
 };

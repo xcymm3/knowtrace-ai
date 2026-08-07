@@ -5,6 +5,13 @@ from pydantic import BaseModel, Field
 
 
 class DocumentKind(StrEnum):
+    # KnowTrace writes only the generic kinds below. Legacy values remain so
+    # pre-migration records and the retired report module can still be read.
+    GENERAL = "GENERAL"
+    REFERENCE = "REFERENCE"
+    NOTE = "NOTE"
+    DATASET = "DATASET"
+    IMAGE = "IMAGE"
     PRODUCT_SHEET = "PRODUCT_SHEET"
     COMPETITOR_SHEET = "COMPETITOR_SHEET"
     BRAND_GUIDE = "BRAND_GUIDE"
@@ -17,8 +24,7 @@ class DocumentKind(StrEnum):
 
 class DocumentUploadResponse(BaseModel):
     id: UUID
-    project_id: UUID
-    product_id: UUID | None
+    workspace_id: UUID
     kind: DocumentKind
     file_name: str
     status: str
@@ -28,8 +34,7 @@ class DocumentUploadResponse(BaseModel):
 
 class SourceDocumentResponse(BaseModel):
     id: UUID
-    project_id: UUID
-    product_id: UUID | None
+    workspace_id: UUID
     kind: DocumentKind
     file_name: str
     mime_type: str

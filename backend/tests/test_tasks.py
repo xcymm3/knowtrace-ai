@@ -7,10 +7,10 @@ from app.main import app
 
 
 class FakeTaskStore:
-    def __init__(self, task_id: str, project_id: str) -> None:
+    def __init__(self, task_id: str, workspace_id: str) -> None:
         self._task = {
             "id": task_id,
-            "project_id": project_id,
+            "workspace_id": workspace_id,
             "document_id": None,
             "task_type": "PARSE_DOCUMENT",
             "status": "SUCCEEDED",
@@ -26,14 +26,16 @@ class FakeTaskStore:
     def get_task(self, _task_id: object) -> dict[str, object]:
         return self._task
 
-    def list_project_tasks(self, _project_id: object) -> list[dict[str, object]]:
+    def list_workspace_tasks(self, _workspace_id: object) -> list[dict[str, object]]:
         return [self._task]
 
 
 def test_task_status_and_sse_completion_event() -> None:
     task_id = uuid4()
-    project_id = uuid4()
-    app.dependency_overrides[get_task_store] = lambda: FakeTaskStore(str(task_id), str(project_id))
+    workspace_id = uuid4()
+    app.dependency_overrides[get_task_store] = lambda: FakeTaskStore(
+        str(task_id), str(workspace_id)
+    )
     client = TestClient(app)
 
     try:
@@ -51,12 +53,14 @@ def test_task_status_and_sse_completion_event() -> None:
 
 def test_list_project_tasks() -> None:
     task_id = uuid4()
-    project_id = uuid4()
-    app.dependency_overrides[get_task_store] = lambda: FakeTaskStore(str(task_id), str(project_id))
+    workspace_id = uuid4()
+    app.dependency_overrides[get_task_store] = lambda: FakeTaskStore(
+        str(task_id), str(workspace_id)
+    )
     client = TestClient(app)
 
     try:
-        response = client.get(f"/api/v1/tasks/projects/{project_id}")
+        response = client.get(f"/api/v1/tasks/workspaces/{workspace_id}")
     finally:
         app.dependency_overrides.clear()
 

@@ -22,8 +22,7 @@ class ParseTaskQueue(Protocol):
 
 @dataclass(frozen=True)
 class UploadInput:
-    project_id: UUID
-    product_id: UUID | None
+    workspace_id: UUID
     kind: DocumentKind
     file_name: str
     mime_type: str
@@ -42,11 +41,11 @@ class DocumentIngestionService:
         safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", raw_name).strip(".-")
         return safe_name[:180] or "uploaded-file"
 
-    async def list_documents(self, project_id: UUID) -> list[dict[str, object]]:
-        exists = await anyio.to_thread.run_sync(self._store.project_exists, project_id)
+    async def list_documents(self, workspace_id: UUID) -> list[dict[str, object]]:
+        exists = await anyio.to_thread.run_sync(self._store.workspace_exists, workspace_id)
         if not exists:
-            raise ApiError(404, "PROJECT_NOT_FOUND", "未找到对应的调研项目。")
-        return await anyio.to_thread.run_sync(self._store.list_project_documents, project_id)
+            raise ApiError(404, "WORKSPACE_NOT_FOUND", "未找到对应的工作区。")
+        return await anyio.to_thread.run_sync(self._store.list_workspace_documents, workspace_id)
 
     async def ingest(self, upload: UploadInput) -> DocumentUploadResponse:
         validate_document_type(upload.mime_type, upload.file_name)
@@ -55,16 +54,16 @@ class DocumentIngestionService:
         if len(upload.content) > self._settings.document_max_upload_size_bytes:
             raise ApiError(413, "DOCUMENT_TOO_LARGE", "上传文件超过允许的大小。")
 
-        project_exists = await anyio.to_thread.run_sync(
-            self._store.project_exists, upload.project_id
+        workspace_exists = await anyio.to_thread.run_sync(
+            self._store.workspace_exists, upload.workspace_id
         )
-        if not project_exists:
-            raise ApiError(404, "PROJECT_NOT_FOUND", "未找到对应的调研项目。")
+        if not workspace_exists:
+            raise ApiError(404, "WORKSPACE_NOT_FOUND", "未找到对应的工作区。")
 
         document_id = uuid4()
         task_id = uuid4()
         safe_file_name = self._sanitize_file_name(upload.file_name)
-        storage_path = f"{upload.project_id}/{document_id}/original/{safe_file_name}"
+        storage_path = f"{upload.workspace_id}/{document_id}/original/{safe_file_name}"
         checksum = hashlib.sha256(upload.content).hexdigest()
 
         await anyio.to_thread.run_sync(
@@ -76,8 +75,7 @@ class DocumentIngestionService:
 
         document_data = {
             "id": str(document_id),
-            "project_id": str(upload.project_id),
-            "product_id": str(upload.product_id) if upload.product_id else None,
+            "workspace_id": str(upload.workspace_id),
             "kind": upload.kind.value,
             "file_name": safe_file_name,
             "mime_type": upload.mime_type,
@@ -93,7 +91,7 @@ class DocumentIngestionService:
             await anyio.to_thread.run_sync(self._store.create_source_document, document_data)
             task_data = {
                 "id": str(task_id),
-                "project_id": str(upload.project_id),
+                "workspace_id": str(upload.workspace_id),
                 "document_id": str(document_id),
                 "task_type": "PARSE_DOCUMENT",
                 "status": "QUEUED",
@@ -106,8 +104,7 @@ class DocumentIngestionService:
 
         return DocumentUploadResponse(
             id=document_id,
-            project_id=upload.project_id,
-            product_id=upload.product_id,
+            workspace_id=upload.workspace_id,
             kind=upload.kind,
             file_name=document_data["file_name"],
             status="PENDING",

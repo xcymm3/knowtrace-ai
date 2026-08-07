@@ -20,7 +20,7 @@ class Settings(BaseSettings):
     database_url: str | None = None
     supabase_url: str | None = None
     supabase_service_role_key: str | None = None
-    supabase_storage_bucket: str = "research-assets"
+    supabase_storage_bucket: str = "knowtrace-assets"
     redis_url: str | None = None
     document_max_upload_size_bytes: int = 52_428_800
     embedding_base_url: str | None = None

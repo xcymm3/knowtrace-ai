@@ -61,7 +61,7 @@ async def parse_document_task(ctx: dict[str, Any], task_id: str) -> None:
         metadata["parse"] = {**parsed.metadata, "needsOcr": parsed.needs_ocr}
 
         if parsed.text:
-            derived_path = f"{document['project_id']}/{document_id}/derived/extracted.txt"
+            derived_path = f"{document['workspace_id']}/{document_id}/derived/extracted.txt"
             await anyio.to_thread.run_sync(
                 store.upload_derived_text, derived_path, parsed.text.encode("utf-8")
             )
@@ -82,7 +82,7 @@ async def parse_document_task(ctx: dict[str, Any], task_id: str) -> None:
                 store.create_embedding_task,
                 {
                     "id": str(uuid4()),
-                    "project_id": document["project_id"],
+                    "workspace_id": document["workspace_id"],
                     "document_id": str(document_id),
                     "task_type": "GENERATE_EMBEDDINGS",
                     "status": "QUEUED",
@@ -208,6 +208,7 @@ async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
 
         records = [
             {
+                "workspace_id": document["workspace_id"],
                 "document_id": str(document_id),
                 "chunk_index": chunk.index,
                 "content": chunk.content,

@@ -3,6 +3,7 @@
 # dependencies
 /node_modules
 /backend/.venv
+/backend/.venv-knowtrace
 **/__pycache__/
 *.py[cod]
 /src/generated/prisma
