@@ -9,6 +9,7 @@ from app.api.dependencies import get_rag_conversation_service
 from app.core.errors import ApiError
 from app.features.conversations.schemas import (
     ConversationCreate,
+    ConversationMessageResponse,
     ConversationResponse,
     RagQuestionRequest,
 )
@@ -32,6 +33,15 @@ async def list_conversations(
     service: RagConversationService = Depends(get_rag_conversation_service),
 ) -> list[ConversationResponse]:
     return await service.list_conversations(workspace_id)
+
+
+@router.get("/{conversation_id}/messages", response_model=list[ConversationMessageResponse])
+async def list_messages(
+    workspace_id: UUID,
+    conversation_id: UUID,
+    service: RagConversationService = Depends(get_rag_conversation_service),
+) -> list[ConversationMessageResponse]:
+    return await service.list_messages(workspace_id, conversation_id)
 
 
 async def rag_event_stream(

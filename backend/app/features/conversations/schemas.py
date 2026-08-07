@@ -33,7 +33,7 @@ class RagSource(BaseModel):
     chunk_id: UUID
     citation: KnowledgeCitation
     excerpt: str
-    score: float
+    score: float | None = None
 
 
 class MessageResponse(BaseModel):
@@ -43,3 +43,7 @@ class MessageResponse(BaseModel):
     content: str
     sequence: int
     created_at: str
+
+
+class ConversationMessageResponse(MessageResponse):
+    sources: list[RagSource] = []

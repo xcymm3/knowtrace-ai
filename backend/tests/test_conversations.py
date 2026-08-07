@@ -48,6 +48,18 @@ class FakeConversationStore:
     def next_sequence(self, _conversation_id: UUID) -> int:
         return len(self.messages)
 
+    def list_messages(self, _conversation_id: UUID) -> list[dict[str, object]]:
+        return self.messages
+
+    def list_citations(self, _message_ids: list[UUID]) -> list[dict[str, object]]:
+        return self.citations
+
+    def get_chunks(self, _chunk_ids: list[UUID]) -> list[dict[str, object]]:
+        return []
+
+    def get_documents(self, _document_ids: list[UUID]) -> list[dict[str, object]]:
+        return []
+
     def create_message(self, data: dict[str, object]) -> dict[str, object]:
         record = {**data, "created_at": "2026-08-07T00:00:01Z"}
         self.messages.append(record)
@@ -156,3 +168,26 @@ def test_conversation_create_api_uses_workspace_scope() -> None:
 
     assert response.status_code == 201
     assert response.json()["title"] == "会议问答"
+
+
+def test_conversation_messages_api_returns_saved_history() -> None:
+    service, store = create_service()
+    asyncio.run(
+        service.prepare_turn(
+            store.workspace_id,
+            store.conversation_id,
+            RagQuestionRequest(question="会议结论是什么？"),
+        )
+    )
+    app.dependency_overrides[get_rag_conversation_service] = lambda: service
+    client = TestClient(app)
+
+    try:
+        response = client.get(
+            f"/api/v1/workspaces/{store.workspace_id}/conversations/{store.conversation_id}/messages"
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json()[0]["role"] == "USER"

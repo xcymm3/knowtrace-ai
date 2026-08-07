@@ -58,6 +58,50 @@ class SupabaseConversationStore:
         )
         return int(response.data[0]["sequence"]) + 1 if response.data else 0
 
+    def list_messages(self, conversation_id: UUID) -> list[dict[str, Any]]:
+        response = (
+            self._client.table("conversation_messages")
+            .select("*")
+            .eq("conversation_id", str(conversation_id))
+            .order("sequence")
+            .execute()
+        )
+        return response.data or []
+
+    def list_citations(self, message_ids: list[UUID]) -> list[dict[str, Any]]:
+        if not message_ids:
+            return []
+        response = (
+            self._client.table("message_citations")
+            .select("*")
+            .in_("message_id", [str(message_id) for message_id in message_ids])
+            .order("citation_order")
+            .execute()
+        )
+        return response.data or []
+
+    def get_chunks(self, chunk_ids: list[UUID]) -> list[dict[str, Any]]:
+        if not chunk_ids:
+            return []
+        response = (
+            self._client.table("document_chunks")
+            .select("id,document_id,metadata")
+            .in_("id", [str(chunk_id) for chunk_id in chunk_ids])
+            .execute()
+        )
+        return response.data or []
+
+    def get_documents(self, document_ids: list[UUID]) -> list[dict[str, Any]]:
+        if not document_ids:
+            return []
+        response = (
+            self._client.table("workspace_documents")
+            .select("id,file_name,kind")
+            .in_("id", [str(document_id) for document_id in document_ids])
+            .execute()
+        )
+        return response.data or []
+
     def create_message(self, data: dict[str, Any]) -> dict[str, Any]:
         response = self._client.table("conversation_messages").insert(data).execute()
         if not response.data:

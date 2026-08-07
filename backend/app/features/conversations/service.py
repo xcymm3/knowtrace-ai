@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from app.core.errors import ApiError
 from app.features.conversations.schemas import (
     ConversationCreate,
+    ConversationMessageResponse,
     ConversationResponse,
     MessageResponse,
     RagQuestionRequest,
@@ -24,6 +25,10 @@ class ConversationStore(Protocol):
     def list_conversations(self, workspace_id: UUID) -> list[dict[str, Any]]: ...
     def get_conversation(self, workspace_id: UUID, conversation_id: UUID) -> dict[str, Any]: ...
     def next_sequence(self, conversation_id: UUID) -> int: ...
+    def list_messages(self, conversation_id: UUID) -> list[dict[str, Any]]: ...
+    def list_citations(self, message_ids: list[UUID]) -> list[dict[str, Any]]: ...
+    def get_chunks(self, chunk_ids: list[UUID]) -> list[dict[str, Any]]: ...
+    def get_documents(self, document_ids: list[UUID]) -> list[dict[str, Any]]: ...
     def create_message(self, data: dict[str, Any]) -> dict[str, Any]: ...
     def touch_conversation(self, conversation_id: UUID) -> None: ...
     def create_citations(self, rows: list[dict[str, Any]]) -> None: ...
@@ -78,6 +83,53 @@ class RagConversationService:
             raise ApiError(404, "WORKSPACE_NOT_FOUND", "未找到对应的工作区。")
         records = await asyncio.to_thread(self._store.list_conversations, workspace_id)
         return [ConversationResponse.model_validate(record) for record in records]
+
+    async def list_messages(
+        self, workspace_id: UUID, conversation_id: UUID
+    ) -> list[ConversationMessageResponse]:
+        await asyncio.to_thread(self._store.get_conversation, workspace_id, conversation_id)
+        records = await asyncio.to_thread(self._store.list_messages, conversation_id)
+        messages = [MessageResponse.model_validate(record) for record in records]
+        citations = await asyncio.to_thread(
+            self._store.list_citations, [message.id for message in messages]
+        )
+        chunk_ids = [UUID(str(citation["chunk_id"])) for citation in citations]
+        chunks = await asyncio.to_thread(self._store.get_chunks, chunk_ids)
+        chunk_by_id = {str(chunk["id"]): chunk for chunk in chunks}
+        document_ids = [UUID(str(chunk["document_id"])) for chunk in chunks]
+        documents = await asyncio.to_thread(self._store.get_documents, document_ids)
+        document_by_id = {str(document["id"]): document for document in documents}
+        sources_by_message: dict[str, list[RagSource]] = {}
+
+        for citation in citations:
+            chunk = chunk_by_id.get(str(citation["chunk_id"]))
+            if not chunk:
+                continue
+            document = document_by_id.get(str(chunk["document_id"]))
+            if not document:
+                continue
+            metadata = chunk.get("metadata") if isinstance(chunk.get("metadata"), dict) else {}
+            sources_by_message.setdefault(str(citation["message_id"]), []).append(
+                RagSource(
+                    chunk_id=UUID(str(citation["chunk_id"])),
+                    citation={
+                        "document_id": UUID(str(document["id"])),
+                        "file_name": str(document["file_name"]),
+                        "kind": document["kind"],
+                        "chunk_index": int(metadata.get("chunkIndex", 0)),
+                        "start_char": metadata.get("startChar"),
+                        "end_char": metadata.get("endChar"),
+                    },
+                    excerpt=str(citation["excerpt"]),
+                )
+            )
+
+        return [
+            ConversationMessageResponse(
+                **message.model_dump(), sources=sources_by_message.get(str(message.id), [])
+            )
+            for message in messages
+        ]
 
     async def prepare_turn(
         self,
