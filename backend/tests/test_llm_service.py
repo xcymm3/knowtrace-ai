@@ -17,6 +17,11 @@ class FakeAnswerChain:
         self.requests.append(input)
         return self.answer
 
+    async def astream(self, input: dict[str, str]):
+        self.requests.append(input)
+        yield self.answer[:2]
+        yield self.answer[2:]
+
 
 def test_answer_service_passes_question_and_context_to_chain() -> None:
     chain = FakeAnswerChain("资料显示该方案可行。")
@@ -36,6 +41,20 @@ def test_answer_service_rejects_empty_model_output() -> None:
 
     with pytest.raises(ApiError, match="模型没有返回"):
         asyncio.run(service.answer(GroundedAnswerRequest(question="状态？", context="暂无资料")))
+
+
+def test_answer_service_streams_chain_deltas() -> None:
+    service = LangChainAnswerService(FakeAnswerChain("依据资料回答。"), "demo-model")
+
+    async def collect() -> list[str]:
+        return [
+            delta
+            async for delta in service.stream(
+                GroundedAnswerRequest(question="状态？", context="资料")
+            )
+        ]
+
+    assert asyncio.run(collect()) == ["依据", "资料回答。"]
 
 
 def test_adapter_requires_explicit_chat_model_configuration() -> None:

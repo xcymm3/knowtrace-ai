@@ -1,6 +1,8 @@
 from functools import lru_cache
 
 from app.core.config import get_settings
+from app.features.conversations.service import RagConversationService
+from app.features.conversations.store import SupabaseConversationStore
 from app.features.documents.service import DocumentIngestionService
 from app.features.documents.store import SupabaseDocumentStore, create_supabase_client
 from app.features.knowledge.embeddings import OpenAICompatibleEmbeddingProvider
@@ -45,6 +47,16 @@ def get_knowledge_search_service() -> KnowledgeSearchService:
 @lru_cache
 def get_langchain_answer_service() -> LangChainAnswerService:
     return build_langchain_answer_service(get_settings())
+
+
+@lru_cache
+def get_rag_conversation_service() -> RagConversationService:
+    settings = get_settings()
+    return RagConversationService(
+        store=SupabaseConversationStore(create_supabase_client(settings)),
+        retrieval=get_knowledge_search_service(),
+        answers=get_langchain_answer_service(),
+    )
 
 
 @lru_cache

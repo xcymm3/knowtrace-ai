@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Protocol
 
 from langchain_core.output_parsers import StrOutputParser
@@ -14,6 +15,8 @@ from app.features.llm.schemas import GroundedAnswerRequest, GroundedAnswerRespon
 class AnswerChain(Protocol):
     async def ainvoke(self, input: dict[str, str]) -> str: ...
 
+    def astream(self, input: dict[str, str]) -> AsyncIterator[str]: ...
+
 
 class LangChainAnswerService:
     """A narrow adapter around LCEL, intentionally independent of HTTP transport."""
@@ -27,6 +30,15 @@ class LangChainAnswerService:
         if not answer:
             raise ApiError(502, "LLM_EMPTY_RESPONSE", "模型没有返回可用回答。")
         return GroundedAnswerResponse(answer=answer, model=self._model_name)
+
+    async def stream(self, request: GroundedAnswerRequest) -> AsyncIterator[str]:
+        emitted = False
+        async for delta in self._chain.astream(request.model_dump()):
+            if delta:
+                emitted = True
+                yield str(delta)
+        if not emitted:
+            raise ApiError(502, "LLM_EMPTY_RESPONSE", "模型没有返回可用回答。")
 
 
 def build_langchain_answer_service(settings: Settings) -> LangChainAnswerService:
