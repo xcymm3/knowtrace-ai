@@ -9,7 +9,7 @@ export default function ErrorPage({
   error,
   unstable_retry: unstableRetry,
 }: {
-  error: Error & { digest?: string };
+  error: Error;
   unstable_retry: () => void;
 }) {
   useEffect(() => {
@@ -23,7 +23,7 @@ export default function ErrorPage({
         <h1 className={styles.title} id="error-heading">
           页面遇到了临时问题
         </h1>
-        <p className={styles.copy}>请重试；若问题持续出现，可以先返回今日标题列表。</p>
+        <p className={styles.copy}>请重试；若问题持续出现，请返回工作台后重新操作。</p>
         <div className={styles.actions}>
           <button className={styles.primaryAction} onClick={() => unstableRetry()} type="button">
             重新加载
