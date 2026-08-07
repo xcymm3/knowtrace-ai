@@ -18,6 +18,8 @@ class DocumentStore(Protocol):
 
     def create_source_document(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
+    def delete_source_document(self, document_id: UUID) -> None: ...
+
     def create_parse_task(self, data: dict[str, Any]) -> dict[str, Any]: ...
 
     def delete_file(self, path: str) -> None: ...
@@ -66,6 +68,9 @@ class SupabaseDocumentStore:
         if not response.data:
             raise ApiError(502, "DOCUMENT_CREATE_FAILED", "知识资料记录创建失败。")
         return response.data[0]
+
+    def delete_source_document(self, document_id: UUID) -> None:
+        self._client.table("workspace_documents").delete().eq("id", str(document_id)).execute()
 
     def create_parse_task(self, data: dict[str, Any]) -> dict[str, Any]:
         response = self._client.table("processing_tasks").insert(data).execute()

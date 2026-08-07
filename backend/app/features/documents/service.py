@@ -38,7 +38,7 @@ class DocumentIngestionService:
     @staticmethod
     def _sanitize_file_name(file_name: str) -> str:
         raw_name = PurePath(file_name).name or "uploaded-file"
-        safe_name = re.sub(r"[^A-Za-z0-9._-]+", "-", raw_name).strip(".-")
+        safe_name = re.sub(r"[^\w.-]+", "-", raw_name, flags=re.UNICODE).strip(".-")
         return safe_name[:180] or "uploaded-file"
 
     async def list_documents(self, workspace_id: UUID) -> list[dict[str, object]]:
@@ -66,13 +66,6 @@ class DocumentIngestionService:
         storage_path = f"{upload.workspace_id}/{document_id}/original/{safe_file_name}"
         checksum = hashlib.sha256(upload.content).hexdigest()
 
-        await anyio.to_thread.run_sync(
-            self._store.upload_file,
-            storage_path,
-            upload.content,
-            upload.mime_type,
-        )
-
         document_data = {
             "id": str(document_id),
             "workspace_id": str(upload.workspace_id),
@@ -84,11 +77,21 @@ class DocumentIngestionService:
             "storage_path": storage_path,
             "checksum": checksum,
             "status": "PENDING",
-            "metadata": {"ingestion": "api-upload"},
+            "metadata": {"ingestion": "api-upload", "checksumAlgorithm": "sha256"},
         }
 
+        file_uploaded = False
+        document_created = False
         try:
+            await anyio.to_thread.run_sync(
+                self._store.upload_file,
+                storage_path,
+                upload.content,
+                upload.mime_type,
+            )
+            file_uploaded = True
             await anyio.to_thread.run_sync(self._store.create_source_document, document_data)
+            document_created = True
             task_data = {
                 "id": str(task_id),
                 "workspace_id": str(upload.workspace_id),
@@ -98,9 +101,20 @@ class DocumentIngestionService:
                 "input_payload": {"documentId": str(document_id)},
             }
             await anyio.to_thread.run_sync(self._store.create_parse_task, task_data)
+        except Exception:
+            if document_created:
+                await anyio.to_thread.run_sync(self._store.delete_source_document, document_id)
+            if file_uploaded:
+                await anyio.to_thread.run_sync(self._store.delete_file, storage_path)
+            raise
+
+        # The task is already durable at this point. If Redis is temporarily
+        # unavailable, retaining a QUEUED task is safer than rolling back the
+        # user's uploaded file; a restarted worker can process it later.
+        try:
             await self._queue.enqueue_parse_document(task_id)
         except Exception:
-            raise
+            pass
 
         return DocumentUploadResponse(
             id=document_id,

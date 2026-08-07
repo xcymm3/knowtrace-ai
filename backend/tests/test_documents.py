@@ -1,6 +1,8 @@
+import asyncio
 import io
 from uuid import UUID, uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from pypdf import PdfWriter
@@ -8,13 +10,15 @@ from pypdf import PdfWriter
 from app.api.dependencies import get_document_ingestion_service
 from app.core.config import Settings
 from app.features.documents.parser import parse_document
-from app.features.documents.service import DocumentIngestionService
+from app.features.documents.schemas import DocumentKind
+from app.features.documents.service import DocumentIngestionService, UploadInput
 from app.main import app
 
 
 class FakeDocumentStore:
-    def __init__(self, workspace_id: UUID) -> None:
+    def __init__(self, workspace_id: UUID, fail_on_task: bool = False) -> None:
         self.workspace_id = workspace_id
+        self.fail_on_task = fail_on_task
         self.uploaded_paths: list[str] = []
         self.documents: list[dict[str, object]] = []
         self.tasks: list[dict[str, object]] = []
@@ -35,8 +39,13 @@ class FakeDocumentStore:
         return data
 
     def create_parse_task(self, data: dict[str, object]) -> dict[str, object]:
+        if self.fail_on_task:
+            raise RuntimeError("database unavailable")
         self.tasks.append(data)
         return data
+
+    def delete_source_document(self, document_id: UUID) -> None:
+        self.documents = [item for item in self.documents if item["id"] != str(document_id)]
 
     def delete_file(self, path: str) -> None:
         self.uploaded_paths.remove(path)
@@ -50,12 +59,24 @@ class FakeTaskQueue:
         self.task_ids.append(task_id)
 
 
+class FailingTaskQueue:
+    async def enqueue_parse_document(self, task_id: UUID) -> None:
+        raise RuntimeError(f"redis unavailable: {task_id}")
+
+
 def test_parse_csv_normalizes_rows() -> None:
     result = parse_document("商品,价格\n保温杯,99".encode(), "text/csv", "products.csv")
 
     assert result.text == "商品 | 价格\n保温杯 | 99"
     assert result.metadata["rowCount"] == 2
     assert result.needs_ocr is False
+
+
+def test_parse_markdown_is_treated_as_text() -> None:
+    result = parse_document("# 标题\n\n正文".encode(), "text/markdown", "说明.md")
+
+    assert result.text == "# 标题\n\n正文"
+    assert result.metadata["parser"] == "text"
 
 
 def test_parse_image_returns_metadata_and_ocr_marker() -> None:
@@ -159,6 +180,57 @@ def test_upload_rejects_an_unsupported_file_type() -> None:
     assert response.status_code == 415
     assert response.json()["error"]["code"] == "DOCUMENT_TYPE_UNSUPPORTED"
     assert fake_store.uploaded_paths == []
+
+
+def test_upload_keeps_unicode_file_name_and_cleans_up_on_persistence_failure() -> None:
+    workspace_id = uuid4()
+    fake_store = FakeDocumentStore(workspace_id, fail_on_task=True)
+    service = DocumentIngestionService(
+        store=fake_store,
+        queue=FakeTaskQueue(),
+        settings=Settings(document_max_upload_size_bytes=1_000_000),
+    )
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        asyncio.run(
+            service.ingest(
+                upload=UploadInput(
+                    workspace_id=workspace_id,
+                    kind=DocumentKind.NOTE,
+                    file_name="会议纪要.md",
+                    mime_type="text/markdown",
+                    content=b"# notes",
+                )
+            )
+        )
+
+    assert fake_store.uploaded_paths == []
+    assert fake_store.documents == []
+
+
+def test_upload_keeps_queued_task_when_queue_is_temporarily_unavailable() -> None:
+    workspace_id = uuid4()
+    fake_store = FakeDocumentStore(workspace_id)
+    service = DocumentIngestionService(
+        store=fake_store,
+        queue=FailingTaskQueue(),
+        settings=Settings(document_max_upload_size_bytes=1_000_000),
+    )
+
+    response = asyncio.run(
+        service.ingest(
+            upload=UploadInput(
+                workspace_id=workspace_id,
+                kind=DocumentKind.NOTE,
+                file_name="会议纪要.md",
+                mime_type="text/markdown",
+                content=b"# notes",
+            )
+        )
+    )
+
+    assert response.file_name == "会议纪要.md"
+    assert fake_store.tasks[0]["status"] == "QUEUED"
 
 
 def test_list_documents_returns_workspace_materials() -> None:

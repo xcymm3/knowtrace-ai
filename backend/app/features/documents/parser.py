@@ -11,13 +11,24 @@ from pypdf import PdfReader
 
 from app.core.errors import ApiError
 
-TEXT_MIME_TYPES = {"text/plain", "text/csv"}
+TEXT_MIME_TYPES = {"text/plain", "text/markdown", "text/csv"}
 SPREADSHEET_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 PDF_MIME_TYPE = "application/pdf"
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
-SUPPORTED_EXTENSIONS = {".txt", ".csv", ".xlsx", ".pdf", ".jpg", ".jpeg", ".png", ".webp"}
+SUPPORTED_EXTENSIONS = {
+    ".txt",
+    ".md",
+    ".markdown",
+    ".csv",
+    ".xlsx",
+    ".pdf",
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+}
 
 
 @dataclass(frozen=True)
@@ -139,11 +150,15 @@ def validate_document_type(mime_type: str, filename: str) -> None:
 
     if extension and extension not in SUPPORTED_EXTENSIONS:
         raise ApiError(
-            415, "DOCUMENT_TYPE_UNSUPPORTED", "仅支持 TXT、CSV、XLSX、PDF、JPG、PNG 和 WEBP 文件。"
+            415,
+            "DOCUMENT_TYPE_UNSUPPORTED",
+            "仅支持 TXT、Markdown、CSV、XLSX、PDF、JPG、PNG 和 WEBP 文件。",
         )
     if not supported_mime_type and extension not in SUPPORTED_EXTENSIONS:
         raise ApiError(
-            415, "DOCUMENT_TYPE_UNSUPPORTED", "仅支持 TXT、CSV、XLSX、PDF、JPG、PNG 和 WEBP 文件。"
+            415,
+            "DOCUMENT_TYPE_UNSUPPORTED",
+            "仅支持 TXT、Markdown、CSV、XLSX、PDF、JPG、PNG 和 WEBP 文件。",
         )
 
 
@@ -152,7 +167,7 @@ def parse_document(content: bytes, mime_type: str, filename: str) -> ParsedDocum
     extension = PurePath(filename).suffix.lower()
     validate_document_type(mime_type, filename)
 
-    if mime_type in TEXT_MIME_TYPES or extension in {".txt", ".csv"}:
+    if mime_type in TEXT_MIME_TYPES or extension in {".txt", ".md", ".markdown", ".csv"}:
         return _parse_text(content, "text/csv" if extension == ".csv" else mime_type)
     if mime_type in SPREADSHEET_MIME_TYPES or extension == ".xlsx":
         return _parse_spreadsheet(content)
@@ -162,5 +177,7 @@ def parse_document(content: bytes, mime_type: str, filename: str) -> ParsedDocum
         return _parse_image(content)
 
     raise ApiError(
-        415, "DOCUMENT_TYPE_UNSUPPORTED", "仅支持 TXT、CSV、XLSX、PDF、JPG、PNG 和 WEBP 文件。"
+        415,
+        "DOCUMENT_TYPE_UNSUPPORTED",
+        "仅支持 TXT、Markdown、CSV、XLSX、PDF、JPG、PNG 和 WEBP 文件。",
     )

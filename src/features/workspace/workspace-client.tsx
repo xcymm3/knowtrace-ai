@@ -218,12 +218,12 @@ export function WorkspaceClient() {
             <aside className={styles.filesPane} aria-labelledby="files-title">
               <header className={styles.filesHeader}><div><p className={styles.eyebrow}>项目资料</p><h2 id="files-title">文件</h2></div><span>{workspace.documents.length}</span></header>
               <form className={styles.uploadForm} onSubmit={handleUpload}>
-                <label className={styles.uploadLabel}>选择文件<input name="file" type="file" required accept=".txt,.md,.csv,.xlsx,.pdf,.jpg,.jpeg,.png,.webp" /></label>
+                <label className={styles.uploadLabel}>选择文件<input name="file" type="file" required accept=".txt,.md,.markdown,.csv,.xlsx,.pdf,.jpg,.jpeg,.png,.webp" /></label>
                 <button className={styles.primaryButton} type="submit" disabled={isSubmitting}>上传并解析</button>
               </form>
               <ul className={styles.documentList}>
                 {workspace.documents.map((document) => <li key={document.id}><span className={styles.fileType}>{document.file_name.split(".").pop()?.toUpperCase() ?? "FILE"}</span><div><strong>{document.file_name}</strong><span>{formatBytes(document.size_bytes)} · {documentStatus(document.status)}</span></div></li>)}
-                {!workspace.documents.length ? <li className={styles.documentEmpty}>尚未上传文件。当前版本可处理文本、表格、PDF 和常见图片资料。</li> : null}
+                {!workspace.documents.length ? <li className={styles.documentEmpty}>尚未上传文件。当前版本支持文本、Markdown、表格、PDF 和常见图片资料。</li> : null}
               </ul>
               <section className={styles.taskPanel} aria-labelledby="task-title"><div className={styles.taskHeading}><h3 id="task-title">处理状态</h3><span>{activeTasks.length ? "运行中" : "空闲"}</span></div><ul>{workspace.tasks.slice(0, 3).map((task) => <li key={task.id}><span className={`${styles.taskMarker} ${task.status === "SUCCEEDED" ? styles.taskDone : ""}`} /><div><strong>{task.task_type === "GENERATE_EMBEDDINGS" ? "向量索引" : "文件解析"}</strong><span>{taskDetail(task)}</span></div></li>)}{!workspace.tasks.length ? <li className={styles.taskEmpty}>上传文件后，解析和索引任务会显示在这里。</li> : null}</ul></section>
             </aside>
