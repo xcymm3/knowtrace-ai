@@ -1,118 +1,66 @@
-# Design — CommerceLens AI
+<!-- Hallmark · macrostructure: Workbench · theme: studied-DNA (source: image)
+     paper: oklch(98% 0.004 250) · accent: oklch(59% 0.19 259)
+     display/body: neutral grotesque · label: mono · studied: yes · DNA-source: image -->
 
-这是一套面向“电商选品与竞品调研”的统一设计系统。项目工作台、对比报告与任务
-详情共享同一组颜色、字体、间距与交互语言；页面的角色不同，但不能像三个独立产品。
+# Design — KnowTrace AI
 
-## Genre
+Locked design system. Future Hallmark runs read this file first; pages defer to
+it. Amend intentionally — the file is the rule.
 
-modern-minimal。内容阅读页允许使用更强的编辑式排版节奏，Agent 面板使用更紧凑的
-技术工作台表达，但不切换全局主题。
+## System
 
-## Macrostructure family
+- Genre · modern-minimal
+- Macrostructure · Workbench: persistent project rail + focused reading canvas
+- Theme · studied-DNA (vibe: "cool white, blue focus, utilitarian workbench")
+- Axes · light / neutral-grotesque / cyan-blue
 
-- 首页：Research Workspace —— 项目概览 + 商品池 + 调研任务。
-- 报告详情：Comparison Reader —— 对比结论 + 证据来源 + 人工反馈。
-- 任务详情：Run Workbench —— 状态概览 + 分阶段运行记录 + 质量与决策证据。
+## Provenance
 
-## Theme
+Extracted from an image supplied by the user on 2026-08-07. Tokens are
+estimated from the screenshot's colour bands; typefaces are role-based
+candidates rather than identified fonts. Rhythm was observed as medium-density,
+left-biased desktop application chrome.
 
-- 纸面：暖白至浅棕，不使用厚重纹理或大面积渐变。
-- 墨色：深棕黑；正文使用较柔和的棕灰。
-- 强调：单一赭棕，仅用于关键动作、状态与焦点。
-- 边框：可感知的细线，不用装饰性双线或玻璃拟态。
+## Tokens
 
-## Typography
-
-- Display：Geist，600–760，紧凑字距，用于标题与数据值。
-- Body：Geist，400–650，用于界面文本。
-- Reading：Newsreader 与中文衬线后备，仅用于调研报告与证据摘要正文。
-- Mono：Geist Mono，用于日期、编号、运行数据和来源标签。
-
-## Spacing and motion
-
-- 使用 `tokens.css` 中的 4pt 命名间距，不在页面内写裸值。
-- 动效只使用透明度、背景色与 `transform`；默认克制。
-- 减少动态效果时退化为即时状态变化或不超过 150ms 的淡入。
-
-## Microinteractions stance
-
-- 点击项上移不超过 1px；按下回落 1px。
-- 成功状态静默呈现，不使用庆祝式提示。
-- 键盘焦点始终有高对比描边。
-
-## Per-page allowances
-
-- 首页：高密度但每个商品与调研项目保有清晰点击区域；状态色块是导航线索，不是装饰图片。
-- 报告页：结论与证据优先于卡片装饰；来源链接保持短小、可扫描。
-- 任务页：以进度、阶段和失败信息为主，不引入营销式视觉或额外插图。
-
-## What pages must share
-
-- 暖棕纸面、赭棕强调色、Geist 为主字体。
-- 可见焦点、细边框、圆角控制件与克制阴影。
-- 所有颜色、字体、间距、圆角和动效均引用 `tokens.css` 中的 token。
-
-## Exports
-
-`tokens.css` 是运行时唯一的 token 来源；以下映射用于在新增页面或迁移组件库时
-保持同一套设计语言。
-
-### CSS tokens
+`tokens.css` is the runtime source of truth.
 
 ```css
 :root {
-  --color-paper: oklch(95.5% 0.018 67);
-  --color-panel: oklch(96.8% 0.012 68);
-  --color-ink: oklch(24% 0.026 52);
-  --color-muted: oklch(49% 0.022 57);
-  --color-rule: oklch(78% 0.028 62);
-  --color-accent: oklch(48% 0.105 45);
-  --color-focus: oklch(43% 0.135 258);
+  --color-paper: oklch(98% 0.004 250);
+  --color-paper-raised: oklch(100% 0 0);
+  --color-ink: oklch(24% 0.014 255);
+  --color-ink-soft: oklch(39% 0.012 255);
+  --color-rule: oklch(89% 0.009 255);
+  --color-accent: oklch(59% 0.19 259);
+  --color-accent-ink: oklch(100% 0 0);
+  --color-focus: oklch(54% 0.2 259);
 
-  --font-display: var(--font-geist-sans), "Noto Sans SC", sans-serif;
-  --font-body: var(--font-geist-sans), "Noto Sans SC", sans-serif;
-  --font-reading: var(--font-newsreader), "Noto Serif SC", serif;
-  --font-mono: var(--font-geist-mono), monospace;
+  --font-display: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-body: "Noto Sans SC", "Microsoft YaHei", Arial, sans-serif;
+  --font-mono: "Sarasa Mono SC", Consolas, monospace;
+
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-short: 140ms;
+  --dur-medium: 220ms;
+  --radius-control: 0.5rem;
+  --radius-pill: 999px;
 }
 ```
 
-### Tailwind v4 mapping
+## CTA voice
 
-```css
-@theme {
-  --color-background: var(--color-paper);
-  --color-foreground: var(--color-ink);
-  --font-sans: var(--font-body);
-  --font-mono: var(--font-mono);
-}
-```
+- Primary · solid blue fill, white text, compact 8px radius.
+- Secondary · white or transparent fill, cool-grey hairline border.
 
-### DTCG token mapping
+## Motion stance
 
-```json
-{
-  "color": {
-    "paper": { "$value": "oklch(95.5% 0.018 67)", "$type": "color" },
-    "ink": { "$value": "oklch(24% 0.026 52)", "$type": "color" },
-    "accent": { "$value": "oklch(48% 0.105 45)", "$type": "color" }
-  },
-  "font": {
-    "display": { "$value": "Geist", "$type": "fontFamily" },
-    "body": { "$value": "Geist", "$type": "fontFamily" }
-  }
-}
-```
+- Motion-cut by default; only background, opacity and 1px transform feedback.
+- Reduced-motion fallback · immediate state or ≤150 ms opacity crossfade.
 
-### shadcn/ui mapping
+## Notes
 
-```css
-:root {
-  --background: 95.5% 0.018 67;
-  --foreground: 24% 0.026 52;
-  --primary: 48% 0.105 45;
-  --primary-foreground: 98% 0.009 72;
-  --border: 78% 0.028 62;
-  --ring: 43% 0.135 258;
-  --radius: 0.625rem;
-}
-```
+- Preserve the persistent side rail, thin neutral dividers and unboxed reading canvas.
+- Use blue only for current selection, focus and the primary action.
+- Do not copy the reference product's logo, labels, version information, menu taxonomy or content.
+- Do not introduce glassmorphism, large gradients, dense card grids or decorative illustration.

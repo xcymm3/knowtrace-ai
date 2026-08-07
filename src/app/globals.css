@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
-/* Hallmark · genre: modern-minimal · tone: custom warm paper · anchor hue: umber
- * structural fingerprint: Catalogue index with a compact AI question dock */
+/* Hallmark · genre: modern-minimal · tone: cool white, blue focus, utilitarian workbench
+ * structural fingerprint: persistent side rail with a focused reading canvas */
 
 :root {
   --background: var(--color-paper);
@@ -12,7 +12,6 @@
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-body);
-  --font-mono: "Sarasa Mono SC", Consolas, monospace;
 }
 
 body {

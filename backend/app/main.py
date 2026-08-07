@@ -10,10 +10,10 @@ settings = get_settings()
 
 app = FastAPI(
     title="KnowTrace API",
-    summary="Evidence-backed APIs for e-commerce product research and comparison.",
+    summary="Evidence-backed APIs for traceable knowledge workspaces.",
     description=(
-        "The domain API for KnowTrace AI. It will manage research projects, "
-        "product evidence, background tasks and traceable selection reports."
+        "The domain API for KnowTrace AI. It will manage workspaces, documents, "
+        "background tasks and traceable retrieval results."
     ),
     version="0.1.0",
     openapi_url=f"{settings.api_v1_prefix}/openapi.json",

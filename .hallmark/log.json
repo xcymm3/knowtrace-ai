@@ -1,6 +1,18 @@
 {
   "builds": [
     {
+      "date": "2026-08-07",
+      "scope": "app",
+      "genre": "modern-minimal",
+      "theme": "studied-DNA",
+      "theme_axes": "light / neutral-grotesque / cyan-blue",
+      "macrostructure": "Workbench",
+      "nav": "N3 side rail",
+      "footer": "none",
+      "enrichment": "none",
+      "notes": "从用户提供的 Langchain-Chatchat 截图提炼冷白、蓝色强调和工具型侧栏工作台 DNA；只采用结构与视觉角色，不复制品牌、文案或菜单。"
+    },
+    {
       "date": "2026-08-05",
       "scope": "app",
       "genre": "modern-minimal",
