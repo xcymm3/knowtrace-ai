@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     embedding_api_key: str | None = None
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
+    llm_base_url: str | None = None
+    llm_api_key: str | None = None
+    llm_model: str = "gpt-4.1-mini"
+    llm_temperature: float = 0
 
     @property
     def allowed_origins(self) -> list[str]:
@@ -43,6 +47,10 @@ class Settings(BaseSettings):
     @property
     def embeddings_is_configured(self) -> bool:
         return bool(self.embedding_base_url and self.embedding_api_key and self.embedding_model)
+
+    @property
+    def llm_is_configured(self) -> bool:
+        return bool(self.llm_base_url and self.llm_api_key and self.llm_model)
 
 
 @lru_cache

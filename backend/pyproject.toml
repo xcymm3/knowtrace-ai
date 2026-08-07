@@ -6,6 +6,8 @@ requires-python = ">=3.12"
 dependencies = [
   "arq>=0.26,<1.0",
   "fastapi[standard]>=0.115,<1.0",
+  "langchain-core>=1.2.22,<2.0",
+  "langchain-openai>=1.1,<2.0",
   "httpx>=0.28,<1.0",
   "openpyxl>=3.1,<4.0",
   "pillow>=11.0,<12.0",

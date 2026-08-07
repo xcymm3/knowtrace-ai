@@ -6,6 +6,7 @@ from app.features.documents.store import SupabaseDocumentStore, create_supabase_
 from app.features.knowledge.embeddings import OpenAICompatibleEmbeddingProvider
 from app.features.knowledge.service import KnowledgeSearchService
 from app.features.knowledge.store import SupabaseKnowledgeStore
+from app.features.llm.service import LangChainAnswerService, build_langchain_answer_service
 from app.features.tasks.queue import ArqTaskQueue
 from app.features.tasks.store import SupabaseTaskStore
 from app.features.workspaces.service import WorkspaceService
@@ -39,6 +40,11 @@ def get_knowledge_search_service() -> KnowledgeSearchService:
         store=SupabaseKnowledgeStore(create_supabase_client(settings)),
         embeddings=OpenAICompatibleEmbeddingProvider(settings),
     )
+
+
+@lru_cache
+def get_langchain_answer_service() -> LangChainAnswerService:
+    return build_langchain_answer_service(get_settings())
 
 
 @lru_cache
