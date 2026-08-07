@@ -31,7 +31,7 @@ async def list_documents(
 async def upload_document(
     workspace_id: UUID,
     file: UploadFile = File(
-        description="TXT, Markdown, CSV, XLSX, PDF, JPG, PNG or WEBP knowledge material."
+        description="TXT, Markdown, CSV, XLSX, DOCX, PDF, JPG, PNG or WEBP knowledge material."
     ),
     kind: DocumentKind = Form(default=DocumentKind.GENERAL),
     service: DocumentIngestionService = Depends(get_document_ingestion_service),

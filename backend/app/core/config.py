@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     supabase_storage_bucket: str = "knowtrace-assets"
     redis_url: str | None = None
     document_max_upload_size_bytes: int = 52_428_800
+    document_max_extracted_characters: int = 1_000_000
     embedding_base_url: str | None = None
     embedding_api_key: str | None = None
     embedding_model: str = "text-embedding-3-small"

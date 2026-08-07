@@ -3,13 +3,14 @@ import io
 from uuid import UUID, uuid4
 
 import pytest
+from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from pypdf import PdfWriter
 
 from app.api.dependencies import get_document_ingestion_service
 from app.core.config import Settings
-from app.features.documents.parser import parse_document
+from app.features.documents.parser import limit_extracted_text, parse_document
 from app.features.documents.schemas import DocumentKind
 from app.features.documents.service import DocumentIngestionService, UploadInput
 from app.main import app
@@ -77,6 +78,35 @@ def test_parse_markdown_is_treated_as_text() -> None:
 
     assert result.text == "# 标题\n\n正文"
     assert result.metadata["parser"] == "text"
+
+
+def test_parse_docx_extracts_paragraphs_and_tables() -> None:
+    document = DocxDocument()
+    document.add_paragraph("会议结论：继续推进。")
+    table = document.add_table(rows=1, cols=2)
+    table.cell(0, 0).text = "负责人"
+    table.cell(0, 1).text = "张三"
+    buffer = io.BytesIO()
+    document.save(buffer)
+
+    result = parse_document(
+        buffer.getvalue(),
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "会议纪要.docx",
+    )
+
+    assert "会议结论：继续推进。" in result.text
+    assert "负责人 | 张三" in result.text
+    assert result.metadata["parser"] == "docx"
+
+
+def test_limit_extracted_text_marks_truncated_content() -> None:
+    parsed = parse_document(b"abcdefgh", "text/plain", "notes.txt")
+    limited = limit_extracted_text(parsed, 4)
+
+    assert limited.text == "abcd"
+    assert limited.metadata["truncated"] is True
+    assert limited.metadata["originalCharacterCount"] == 8
 
 
 def test_parse_image_returns_metadata_and_ocr_marker() -> None:
