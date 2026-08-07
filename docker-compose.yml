@@ -1,4 +1,4 @@
-name: commercelens-ai
+name: knowtrace-ai
 
 services:
   redis:

@@ -94,7 +94,7 @@ async def parse_document_task(ctx: dict[str, Any], task_id: str) -> None:
                 "generate_embeddings_task",
                 str(embedding_task_id),
                 _job_id=f"generate-embeddings:{embedding_task_id}",
-                _queue_name="commercelens:tasks",
+                _queue_name="knowtrace:tasks",
             )
             output_payload["embeddingTaskId"] = str(embedding_task_id)
 

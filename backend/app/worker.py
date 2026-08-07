@@ -10,7 +10,7 @@ settings = Settings()
 class WorkerSettings:
     functions = [parse_document_task, generate_embeddings_task]
     redis_settings: RedisSettings = redis_settings_from_url(settings.redis_url)
-    queue_name = "commercelens:tasks"
+    queue_name = "knowtrace:tasks"
     max_jobs = 4
     max_tries = 3
     job_timeout = 120

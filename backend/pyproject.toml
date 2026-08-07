@@ -1,7 +1,7 @@
 [project]
-name = "commercelens-api"
+name = "knowtrace-api"
 version = "0.1.0"
-description = "FastAPI domain service for CommerceLens AI."
+description = "FastAPI domain service for KnowTrace AI."
 requires-python = ">=3.12"
 dependencies = [
   "arq>=0.26,<1.0",

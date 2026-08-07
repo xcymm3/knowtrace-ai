@@ -43,7 +43,7 @@ class ArqTaskQueue:
                 function_name,
                 str(task_id),
                 _job_id=f"{job_type}:{task_id}",
-                _queue_name="commercelens:tasks",
+                _queue_name="knowtrace:tasks",
             )
         except Exception as error:
             raise ApiError(503, "TASK_QUEUE_UNAVAILABLE", "资料解析队列暂时不可用。") from error

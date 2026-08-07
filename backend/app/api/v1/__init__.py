@@ -1,1 +1,1 @@
-"""CommerceLens API v1."""
+"""KnowTrace API v1."""

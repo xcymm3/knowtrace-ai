@@ -12,7 +12,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    app_name: str = "CommerceLens API"
+    app_name: str = "KnowTrace API"
     app_environment: str = "development"
     api_v1_prefix: str = "/api/v1"
     cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"

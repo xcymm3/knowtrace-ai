@@ -9,10 +9,10 @@ from app.core.errors import register_error_handlers
 settings = get_settings()
 
 app = FastAPI(
-    title="CommerceLens API",
+    title="KnowTrace API",
     summary="Evidence-backed APIs for e-commerce product research and comparison.",
     description=(
-        "The domain API for CommerceLens AI. It will manage research projects, "
+        "The domain API for KnowTrace AI. It will manage research projects, "
         "product evidence, background tasks and traceable selection reports."
     ),
     version="0.1.0",

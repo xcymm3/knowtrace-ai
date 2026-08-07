@@ -16,7 +16,7 @@ def test_health_returns_liveness_payload() -> None:
     assert response.status_code == 200
     assert response.json() == {
         "status": "ok",
-        "service": "CommerceLens API",
+        "service": "KnowTrace API",
         "environment": "development",
     }
 

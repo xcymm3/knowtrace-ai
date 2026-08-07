@@ -1,1 +1,1 @@
-"""CommerceLens FastAPI application package."""
+"""KnowTrace FastAPI application package."""

@@ -1,1 +1,1 @@
-"""CommerceLens business features."""
+"""KnowTrace domain features."""
