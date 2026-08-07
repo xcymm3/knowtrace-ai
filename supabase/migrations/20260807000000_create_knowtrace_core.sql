@@ -1,5 +1,18 @@
--- KnowTrace core model. This migration is additive: existing CommerceLens
--- tables remain untouched so a deployed prototype can be upgraded safely.
+-- KnowTrace core model. It is self-contained for a new Supabase project and
+-- remains additive for projects that previously ran the CommerceLens prototype.
+
+create extension if not exists vector;
+create extension if not exists pgcrypto;
+
+create or replace function public.set_updated_at()
+returns trigger
+language plpgsql
+as $$
+begin
+  new.updated_at = timezone('utc', now());
+  return new;
+end;
+$$;
 
 create type public.workspace_status as enum ('DRAFT', 'ACTIVE', 'ARCHIVED');
 create type public.knowledge_document_kind as enum ('GENERAL', 'REFERENCE', 'NOTE', 'DATASET', 'IMAGE');

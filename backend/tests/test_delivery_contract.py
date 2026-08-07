@@ -13,15 +13,18 @@ def test_compose_keeps_supabase_external_and_runs_four_local_services() -> None:
     assert "SUPABASE_SERVICE_ROLE_KEY" in compose
 
 
-def test_delivery_files_include_repeatable_demo_and_all_migrations() -> None:
-    seed = (ROOT / "supabase" / "seed" / "demo_commercelens.sql").read_text(encoding="utf-8")
+def test_delivery_files_describe_current_knowtrace_bootstrap() -> None:
+    core_migration = (
+        ROOT / "supabase" / "migrations" / "20260807000000_create_knowtrace_core.sql"
+    ).read_text(encoding="utf-8")
     docker_guide = (ROOT / "docs" / "run-with-docker.md").read_text(encoding="utf-8")
+    supabase_guide = (ROOT / "docs" / "supabase-setup.md").read_text(encoding="utf-8")
 
-    assert "on conflict (id) do update" in seed
-    assert "knowledge_chunks" not in seed
+    assert "create extension if not exists vector" in core_migration
+    assert "create or replace function public.set_updated_at" in core_migration
     for migration in (
-        "20260805000000_initial_commercelens_schema.sql",
-        "20260805000001_create_research_assets_bucket.sql",
-        "20260805000002_add_hybrid_retrieval.sql",
+        "20260807000000_create_knowtrace_core.sql",
+        "20260807001000_add_parsed_document_status.sql",
     ):
         assert migration in docker_guide
+        assert migration in supabase_guide

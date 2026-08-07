@@ -1,43 +1,81 @@
 # KnowTrace AI
 
-> 面向团队资料的可追溯知识工作台。用户在项目中上传资料，并获得带来源引用的 AI 问答与结构化结论。
+> 面向团队资料的可追溯知识工作台：上传文件、异步建立索引、在限定资料范围内进行带引用的流式问答。
 
-## MVP 定位
+KnowTrace 的目标不是泛用聊天，而是让每次回答都能回到具体文件和片段。它适合会议纪要、产品资料、研究笔记、规范文档和表格数据等需要复核的团队知识。
 
-KnowTrace AI 以“项目文件夹 + 文件 + 对话”为核心交互：
+## 已实现的 MVP
 
-1. 创建一个项目，用作独立的资料与对话范围。
-2. 上传项目资料；原文件保存到 Supabase Storage。
-3. 后台异步解析、切分并向量化文本资料。
-4. 在项目内提问、生成摘要或对比资料。
-5. 每个回答均可回看其引用的文件原文与位置。
+1. **工作区隔离**：创建多个项目，每个项目独立保存资料、任务和对话。
+2. **文件入库**：支持 TXT、Markdown、CSV、XLSX、DOCX、PDF 及常见图片；原文件存入 Supabase Storage。
+3. **异步处理**：FastAPI 创建任务，Redis + ARQ Worker 负责解析、切片、Embedding、失败重试和进度记录。
+4. **混合检索**：PostgreSQL + pgvector 结合向量相似度与全文关键词检索，只查询当前工作区已索引资料。
+5. **引用式 RAG 对话**：LangChain 调用 OpenAI-compatible 模型；回答通过 SSE 流式返回，并保留文件名、片段位置和摘录。
+6. **本地一键编排**：Docker Compose 启动 Next.js、FastAPI、Worker 和 Redis；Supabase 继续提供托管 PostgreSQL、pgvector 与 Storage。
 
-第一版只聚焦可追溯的文档 RAG 闭环，不提供本地模型管理、多模型切换、Agent、联网搜索、OCR 或多模态能力。
+当前不包含登录与权限、多模型切换、联网搜索、OCR、Agent 工具调用或本地模型管理。这些是明确的 MVP 边界，不是未声明的承诺。
 
-## 目标架构
+## 架构
+
+```text
+Next.js Workbench
+        │ /api/v1 proxy
+        ▼
+FastAPI ─── Supabase (PostgreSQL + pgvector + Storage)
+   │
+   └── Redis ─── ARQ Worker (解析 / 切片 / Embedding)
+        │
+        └── OpenAI-compatible Embedding / Chat API
+```
 
 | 服务 | 职责 |
 | --- | --- |
-| Next.js | 项目列表、文件上传、对话和引用展示工作台 |
-| FastAPI | 项目、资料、检索与对话 API；SSE 流式推送 |
-| Supabase | PostgreSQL 业务数据、pgvector 检索、Storage 文件存储 |
-| Redis + Worker | 资料解析、Embedding 与重试任务 |
-| Docker Compose | 本地启动 Web、API、Worker 和 Redis，并连接 Supabase |
+| Next.js | 工作区、资料、任务状态、会话与引用展示 |
+| FastAPI | 工作区、文件、检索、会话与 SSE API |
+| Supabase | PostgreSQL 业务数据、pgvector 检索、私有文件 Storage |
+| Redis + ARQ | 后台解析、向量化、重试与进度队列 |
+| LangChain | 将检索上下文连接到 OpenAI-compatible 对话模型 |
 
-## 本地开发
+## 快速开始
+
+前置条件：Node.js 22+、pnpm 11、Python 3.12+、Docker Desktop，以及一个 Supabase 项目。
 
 ```powershell
 pnpm install
 Copy-Item .env.example .env
-pnpm dev
 ```
 
-## Docker Compose
+然后按 [Supabase 初始化](docs/supabase-setup.md) 执行 Migration，并填写 `.env`。完整容器启动方式见 [Docker Compose 运行说明](docs/run-with-docker.md)。
 
-项目提供 `web + api + worker + redis` 的 Compose 配置，Supabase 继续承载托管数据库、pgvector 与 Storage。
+## 常用命令
 
 ```powershell
+# 前端
+pnpm dev
+pnpm lint
+pnpm build
+
+# 后端（在 backend 目录执行）
+$env:UV_PROJECT_ENVIRONMENT='.venv-knowtrace'
+uv sync --group dev
+uv run pytest
+uv run ruff check app tests
+
+# 全栈
 docker compose up --build
 ```
 
-详细环境变量和运行说明将在后续改造步骤中同步更新。
+## 部署边界
+
+完整 MVP 需要一个可持续运行的 FastAPI 服务、一个 Worker 和 Redis。推荐使用 Docker Compose 或把这三个服务分别部署到支持容器/进程的运行平台；Supabase 作为托管依赖。
+
+Vercel 适合部署 Next.js 前端，但不能单独承载持续消费 Redis 队列的 Worker。若使用 Vercel，仍需单独部署 API、Worker 和 Redis，并配置前端的 `API_PROXY_TARGET` 指向 API 服务。详见 [部署说明](docs/deployment.md)。
+
+## 文档
+
+- [MVP 范围](docs/mvp-scope.md)
+- [数据模型](docs/data-model.md)
+- [API 契约](docs/api-contract.md)
+- [Supabase 初始化](docs/supabase-setup.md)
+- [Docker Compose 运行](docs/run-with-docker.md)
+- [部署说明](docs/deployment.md)
