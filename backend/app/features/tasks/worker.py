@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import anyio
 from arq import Retry
@@ -34,6 +35,7 @@ async def process_parse_document(
     task_id: UUID,
     attempt: int,
     max_extracted_characters: int,
+    enqueue_embedding: Callable[[UUID], Awaitable[None]] | None = None,
 ) -> None:
     """Extract a document in the worker and persist a bounded text artifact.
 
@@ -70,6 +72,8 @@ async def process_parse_document(
             "needsOcr": parsed.needs_ocr,
             "hasExtractedText": bool(parsed.text),
         }
+        index_task_id: UUID | None = None
+        document_status = "PARSED"
         if parsed.text:
             derived_path = f"{document['workspace_id']}/{document_id}/derived/extracted.txt"
             await anyio.to_thread.run_sync(
@@ -77,11 +81,41 @@ async def process_parse_document(
             )
             metadata["extractedTextPath"] = derived_path
 
+            if enqueue_embedding:
+                index_task_id = uuid4()
+                await anyio.to_thread.run_sync(
+                    store.create_embedding_task,
+                    {
+                        "id": str(index_task_id),
+                        "workspace_id": document["workspace_id"],
+                        "document_id": str(document_id),
+                        "task_type": "GENERATE_EMBEDDINGS",
+                        "status": "QUEUED",
+                        "input_payload": {"sourceTaskId": str(task_id)},
+                    },
+                )
+                metadata["index"] = {"status": "QUEUED", "taskId": str(index_task_id)}
+                document_status = "PROCESSING"
+
         await anyio.to_thread.run_sync(
             store.update_document,
             document_id,
-            {"status": "PARSED", "metadata": metadata, "error_message": None},
+            {"status": document_status, "metadata": metadata, "error_message": None},
         )
+        if index_task_id:
+            try:
+                await enqueue_embedding(index_task_id)  # type: ignore[misc]
+            except Exception as error:
+                metadata["index"] = {
+                    "status": "QUEUED",
+                    "taskId": str(index_task_id),
+                    "queueError": _safe_error_message(error),
+                }
+                await anyio.to_thread.run_sync(
+                    store.update_document,
+                    document_id,
+                    {"status": "PARSED", "metadata": metadata},
+                )
         await _update_task(
             store,
             task_id,
@@ -92,7 +126,8 @@ async def process_parse_document(
                     "parser": parsed.metadata.get("parser"),
                     "characterCount": len(parsed.text),
                     "needsOcr": parsed.needs_ocr,
-                    "indexStatus": "PENDING",
+                    "indexStatus": "QUEUED" if index_task_id else "PENDING",
+                    "embeddingTaskId": str(index_task_id) if index_task_id else None,
                 },
                 "error_message": None,
                 "completed_at": _utc_now(),
@@ -145,36 +180,47 @@ async def parse_document_task(ctx: dict[str, Any], task_id: str) -> None:
         create_supabase_client(settings),
         settings.supabase_storage_bucket,
     )
+
+    async def enqueue_embedding(embedding_task_id: UUID) -> None:
+        await ctx["redis"].enqueue_job(
+            "generate_embeddings_task",
+            str(embedding_task_id),
+            _job_id=f"generate-embeddings:{embedding_task_id}",
+            _queue_name="knowtrace:tasks",
+        )
+
     await process_parse_document(
         store,
         UUID(task_id),
         int(ctx.get("job_try", 1)),
         settings.document_max_extracted_characters,
+        enqueue_embedding,
     )
 
 
-async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
-    """Chunk an extracted document, generate vectors, and atomically replace its index."""
-    settings = Settings()
-    client = create_supabase_client(settings)
-    task_store = SupabaseTaskStore(client, settings.supabase_storage_bucket)
-    knowledge_store = SupabaseKnowledgeStore(client)
-    typed_task_id = UUID(task_id)
-    task = await anyio.to_thread.run_sync(task_store.get_task, typed_task_id)
-    document_id = UUID(task["document_id"])
-    attempt = int(ctx.get("job_try", 1))
-
+async def process_generate_embeddings(
+    task_store: SupabaseTaskStore,
+    knowledge_store: SupabaseKnowledgeStore,
+    embeddings: OpenAICompatibleEmbeddingProvider,
+    task_id: UUID,
+    attempt: int,
+    embedding_model: str,
+) -> None:
+    """Chunk one parsed document, embed its chunks, and atomically replace its index."""
+    task = await anyio.to_thread.run_sync(task_store.get_task, task_id)
     if task["status"] == "CANCELLED":
         return
+    document_id = UUID(str(task["document_id"]))
+    max_attempts = int(task["max_attempts"])
+    document: dict[str, Any] | None = None
 
     await _update_task(
         task_store,
-        typed_task_id,
+        task_id,
         {"status": "RUNNING", "progress": 10, "attempt_count": attempt, "started_at": _utc_now()},
     )
 
     try:
-        embeddings = OpenAICompatibleEmbeddingProvider(settings)
         document = await anyio.to_thread.run_sync(knowledge_store.get_document, document_id)
         metadata = dict(document.get("metadata") or {})
         extracted_path = metadata.get("extractedTextPath")
@@ -187,7 +233,7 @@ async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
         chunks = chunk_text(extracted.decode("utf-8"))
         if not chunks:
             raise ApiError(422, "DOCUMENT_TEXT_UNAVAILABLE", "资料没有可供检索的文本内容。")
-        await _update_task(task_store, typed_task_id, {"progress": 30})
+        await _update_task(task_store, task_id, {"progress": 30})
 
         vectors: list[list[float]] = []
         batch_size = 32
@@ -195,7 +241,7 @@ async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
             batch = chunks[start : start + batch_size]
             vectors.extend(await embeddings.embed([chunk.content for chunk in batch]))
             progress = 30 + int(50 * min(start + len(batch), len(chunks)) / len(chunks))
-            await _update_task(task_store, typed_task_id, {"progress": progress})
+            await _update_task(task_store, task_id, {"progress": progress})
 
         records = [
             {
@@ -211,46 +257,42 @@ async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
         ]
         await anyio.to_thread.run_sync(knowledge_store.replace_chunks, document_id, records)
         metadata["index"] = {
+            "status": "READY",
             "chunkCount": len(records),
-            "embeddingModel": settings.embedding_model,
+            "embeddingModel": embedding_model,
             "updatedAt": _utc_now(),
         }
         await anyio.to_thread.run_sync(
-            task_store.update_document, document_id, {"metadata": metadata, "error_message": None}
+            task_store.update_document,
+            document_id,
+            {"status": "READY", "metadata": metadata, "error_message": None},
         )
         await _update_task(
             task_store,
-            typed_task_id,
+            task_id,
             {
                 "status": "SUCCEEDED",
                 "progress": 100,
-                "output_payload": {
-                    "chunkCount": len(records),
-                    "embeddingModel": settings.embedding_model,
-                },
+                "output_payload": {"chunkCount": len(records), "embeddingModel": embedding_model},
                 "error_message": None,
                 "completed_at": _utc_now(),
             },
         )
-    except ApiError as error:
-        await _update_task(
-            task_store,
-            typed_task_id,
-            {
-                "status": "FAILED",
-                "progress": 100,
-                "error_message": error.message,
-                "completed_at": _utc_now(),
-            },
-        )
-        raise
     except Exception as error:
-        message = _safe_error_message(error)
-        max_attempts = int(task["max_attempts"])
-        if attempt < max_attempts:
+        message = error.message if isinstance(error, ApiError) else _safe_error_message(error)
+        retryable = not isinstance(error, ApiError) or error.status_code >= 500
+        if retryable and attempt < max_attempts:
+            if document:
+                metadata = dict(document.get("metadata") or {})
+                metadata["index"] = {"status": "QUEUED", "lastError": message}
+                await anyio.to_thread.run_sync(
+                    task_store.update_document,
+                    document_id,
+                    {"status": "PARSED", "metadata": metadata, "error_message": message},
+                )
             await _update_task(
                 task_store,
-                typed_task_id,
+                task_id,
                 {
                     "status": "QUEUED",
                     "progress": 0,
@@ -259,9 +301,18 @@ async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
                 },
             )
             raise Retry(defer=attempt * 5) from error
+
+        if document:
+            metadata = dict(document.get("metadata") or {})
+            metadata["index"] = {"status": "FAILED", "lastError": message}
+            await anyio.to_thread.run_sync(
+                task_store.update_document,
+                document_id,
+                {"status": "FAILED", "metadata": metadata, "error_message": message},
+            )
         await _update_task(
             task_store,
-            typed_task_id,
+            task_id,
             {
                 "status": "FAILED",
                 "progress": 100,
@@ -271,3 +322,17 @@ async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
             },
         )
         raise
+
+
+async def generate_embeddings_task(ctx: dict[str, Any], task_id: str) -> None:
+    """ARQ entry point for one queued chunk-and-embedding task."""
+    settings = Settings()
+    client = create_supabase_client(settings)
+    await process_generate_embeddings(
+        SupabaseTaskStore(client, settings.supabase_storage_bucket),
+        SupabaseKnowledgeStore(client),
+        OpenAICompatibleEmbeddingProvider(settings),
+        UUID(task_id),
+        int(ctx.get("job_try", 1)),
+        settings.embedding_model,
+    )

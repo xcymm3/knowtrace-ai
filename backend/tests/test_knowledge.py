@@ -1,10 +1,14 @@
 import asyncio
 from uuid import uuid4
 
+from fastapi.testclient import TestClient
+
+from app.api.dependencies import get_knowledge_search_service
 from app.features.knowledge.chunker import chunk_text
-from app.features.knowledge.schemas import KnowledgeSearchRequest
+from app.features.knowledge.schemas import KnowledgeSearchRequest, KnowledgeSearchResponse
 from app.features.knowledge.service import KnowledgeSearchService
 from app.features.knowledge.store import _vector_literal
+from app.main import app
 
 
 def test_chunk_text_keeps_order_and_overlap() -> None:
@@ -42,7 +46,7 @@ class FakeKnowledgeStore:
 
 
 def test_search_returns_traceable_citation() -> None:
-    project_id = uuid4()
+    workspace_id = uuid4()
     document_id = uuid4()
     chunk_id = uuid4()
     store = FakeKnowledgeStore(
@@ -62,11 +66,35 @@ def test_search_returns_traceable_citation() -> None:
     service = KnowledgeSearchService(store=store, embeddings=FakeEmbeddings())
 
     result = asyncio.run(
-        service.search(project_id, KnowledgeSearchRequest(query="通勤轻薄笔记本", limit=5))
+        service.search(workspace_id, KnowledgeSearchRequest(query="通勤轻薄笔记本", limit=5))
     )
 
     assert store.received is not None
-    assert store.received[0] == project_id
+    assert store.received[0] == workspace_id
     assert result.hits[0].citation.file_name == "竞品参数.xlsx"
     assert result.hits[0].citation.chunk_index == 2
     assert result.hits[0].citation.start_char == 32
+
+
+class FakeKnowledgeSearchService:
+    async def search(
+        self, workspace_id: object, request: KnowledgeSearchRequest
+    ) -> KnowledgeSearchResponse:
+        return KnowledgeSearchResponse(workspace_id=workspace_id, query=request.query, hits=[])
+
+
+def test_search_api_scopes_request_to_workspace() -> None:
+    workspace_id = uuid4()
+    app.dependency_overrides[get_knowledge_search_service] = FakeKnowledgeSearchService
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            f"/api/v1/workspaces/{workspace_id}/search",
+            json={"query": "会议结论", "limit": 3},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    assert response.json() == {"workspace_id": str(workspace_id), "query": "会议结论", "hits": []}
