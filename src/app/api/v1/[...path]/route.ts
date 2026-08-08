@@ -22,6 +22,9 @@ async function proxyToApi(request: NextRequest, { params }: RouteContext) {
   const headers = new Headers(request.headers);
   headers.delete("host");
   headers.delete("connection");
+  headers.delete("content-length");
+  headers.delete("transfer-encoding");
+  headers.delete("expect");
 
   try {
     const response = await fetch(target, {
@@ -36,7 +39,8 @@ async function proxyToApi(request: NextRequest, { params }: RouteContext) {
     responseHeaders.delete("content-encoding");
     responseHeaders.delete("transfer-encoding");
     return new Response(response.body, { status: response.status, headers: responseHeaders });
-  } catch {
+  } catch (error) {
+    console.error("FastAPI proxy request failed", { method: request.method, target: target.toString(), error });
     return Response.json(
       {
         error: {
