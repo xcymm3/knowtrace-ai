@@ -1,5 +1,4 @@
--- KnowTrace core model. It is self-contained for a new Supabase project and
--- remains additive for projects that previously ran the CommerceLens prototype.
+-- KnowTrace core model. It is self-contained for a new Supabase project.
 
 create extension if not exists vector;
 create extension if not exists pgcrypto;

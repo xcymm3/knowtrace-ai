@@ -11,8 +11,6 @@ KnowTrace 使用一个 Supabase 项目提供 PostgreSQL、pgvector 和私有文�
 3. 在 **Project Settings → Database** 复制 PostgreSQL connection string，填写根目录 `.env` 的 `DATABASE_URL`。
 4. 在 **Project Settings → API** 复制 Project URL 与 `service_role` key，分别填写 `SUPABASE_URL` 和 `SUPABASE_SERVICE_ROLE_KEY`。
 
-> 仓库中仍保留早期 CommerceLens Migration，供旧原型升级参考；新 KnowTrace 项目不需要手动执行它们。
-
 ## 必填环境变量
 
 ```dotenv

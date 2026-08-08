@@ -6,7 +6,6 @@
 /backend/.venv-knowtrace
 **/__pycache__/
 *.py[cod]
-/src/generated/prisma
 /.pnp
 .pnp.*
 .yarn/*

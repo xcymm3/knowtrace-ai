@@ -20,7 +20,7 @@ body {
   font-family: var(--font-body);
 }
 
-/* App-wide foundation appended for the daily briefing interface. */
+/* App-wide foundation for the KnowTrace workbench. */
 :root {
   --background: var(--color-paper);
   --foreground: var(--color-ink);
