@@ -75,6 +75,7 @@ export function WorkspaceClient() {
   const [conversationId, setConversationId] = useState<string | null>(null);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [question, setQuestion] = useState("");
+  const [retrievalLimit, setRetrievalLimit] = useState(6);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -115,11 +116,6 @@ export function WorkspaceClient() {
     return nextProjects;
   }, []);
 
-  const loadMessages = useCallback(async (workspaceId: string, nextConversationId: string) => {
-    const nextMessages = await knowTraceApi.listMessages(workspaceId, nextConversationId);
-    setMessages(nextMessages);
-  }, []);
-
   useEffect(() => {
     void (async () => {
       try {
@@ -152,15 +148,20 @@ export function WorkspaceClient() {
   }, [loadWorkspace, projectId]);
 
   useEffect(() => {
-    if (!projectId || !conversationId) return;
+    if (!projectId || !conversationId || isStreaming) return;
+    let isCurrent = true;
     void (async () => {
       try {
-        await loadMessages(projectId, conversationId);
+        const nextMessages = await knowTraceApi.listMessages(projectId, conversationId);
+        if (isCurrent) setMessages(nextMessages);
       } catch (caughtError) {
-        setError(readableError(caughtError));
+        if (isCurrent) setError(readableError(caughtError));
       }
     })();
-  }, [conversationId, loadMessages, projectId]);
+    return () => {
+      isCurrent = false;
+    };
+  }, [conversationId, isStreaming, projectId]);
 
   useEffect(() => () => streamAbortRef.current?.abort(), []);
 
@@ -350,7 +351,7 @@ export function WorkspaceClient() {
         { id: localAssistantId, conversation_id: nextConversationId, role: "ASSISTANT", content: "", sequence: current.length + 1, created_at: now, sources: [] },
       ]);
 
-      await knowTraceApi.streamRagAnswer(projectId, nextConversationId, cleanQuestion, (streamEvent) => {
+      await knowTraceApi.streamRagAnswer(projectId, nextConversationId, cleanQuestion, retrievalLimit, (streamEvent) => {
         if (streamEvent.event === "retrieval") {
           setMessages((current) => current.map((message) => message.id === localAssistantId ? { ...message, sources: streamEvent.data.sources } : message));
         }
@@ -414,18 +415,35 @@ export function WorkspaceClient() {
           </div>
         </section> : null}
 
+        {activeProject ? <section className={styles.ragSettings} aria-labelledby="rag-settings-title">
+          <div className={styles.railHeading}><h2 id="rag-settings-title">RAG 设置</h2><span>当前</span></div>
+          <label className={styles.retrievalLabel} htmlFor="retrieval-limit"><span>引用片段数</span><output>{retrievalLimit}</output></label>
+          <input className={styles.retrievalRange} id="retrieval-limit" type="range" min="1" max="12" value={retrievalLimit} onChange={(event) => setRetrievalLimit(Number(event.target.value))} aria-describedby="retrieval-limit-help" />
+          <p className={styles.settingHelp} id="retrieval-limit-help">每次回答最多检索 {retrievalLimit} 个相关资料片段。</p>
+          <dl className={styles.settingSummary}>
+            <div><dt>检索范围</dt><dd>当前知识库</dd></div>
+            <div><dt>回答依据</dt><dd>仅限已索引资料</dd></div>
+          </dl>
+        </section> : null}
+
         <div className={styles.sidebarFoot}><span className={styles.statusDot} aria-hidden="true" />RAG MVP · Step 9</div>
       </aside>
 
       <main className={styles.main} id="workspace-main">
-        {error ? <p className={styles.feedbackError} role="alert">{error}</p> : null}
-        {notice ? <p className={styles.feedbackNotice} role="status">{notice}</p> : null}
+        {!activeProject && error ? <p className={styles.feedbackError} role="alert">{error}</p> : null}
+        {!activeProject && notice ? <p className={styles.feedbackNotice} role="status">{notice}</p> : null}
 
         {!activeProject && !isLoading ? <section className={styles.welcome} aria-labelledby="welcome-title"><p className={styles.eyebrow}>KNOWTRACE AI</p><h1 id="welcome-title">从一个知识库开始整理资料。</h1><p>每个知识库拥有独立的文件与后续对话范围。先在左侧命名知识库，再上传第一份资料。</p></section> : null}
 
         {activeProject ? <div className={styles.workspaceGrid}>
           <section className={styles.chatPane} aria-labelledby="project-title">
-            <header className={styles.workspaceHeader}><div><p className={styles.eyebrow}>当前知识库 {activeConversation ? `· ${activeConversation.title}` : ""}</p><h1 id="project-title">{activeProject.name}</h1></div></header>
+            <header className={styles.workspaceHeader}>
+              <div><p className={styles.eyebrow}>当前知识库 {activeConversation ? `· ${activeConversation.title}` : ""}</p><h1 id="project-title">{activeProject.name}</h1></div>
+              <div className={styles.workspaceFeedback} aria-live="polite">
+                {error ? <p className={styles.feedbackError} role="alert">{error}</p> : null}
+                {notice ? <p className={styles.feedbackNotice} role="status">{notice}</p> : null}
+              </div>
+            </header>
 
             {messages.length ? <div className={styles.messageTimeline} aria-live="polite">
               {messages.map((message) => <article className={`${styles.message} ${message.role === "USER" ? styles.userMessage : styles.assistantMessage}`} key={message.id}>

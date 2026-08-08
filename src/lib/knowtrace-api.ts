@@ -131,6 +131,7 @@ async function streamRagAnswer(
   workspaceId: string,
   conversationId: string,
   question: string,
+  retrievalLimit: number,
   onEvent: (event: RagStreamEvent) => void,
   signal?: AbortSignal,
 ) {
@@ -139,7 +140,7 @@ async function streamRagAnswer(
     response = await fetch(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages/stream`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ question }),
+      body: JSON.stringify({ question, retrieval_limit: retrievalLimit }),
       signal,
     });
   } catch (error) {
