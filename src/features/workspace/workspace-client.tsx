@@ -19,6 +19,11 @@ type WorkspaceData = { documents: KnowledgeDocument[]; tasks: ProcessingTask[] }
 type DeletionTarget =
   | { kind: "workspace"; workspace: WorkspaceProject }
   | { kind: "conversation"; conversation: Conversation };
+type UploadActivity = {
+  documentId?: string;
+  fileName: string;
+  stage: "UPLOADING" | "PROCESSING";
+};
 
 const emptyWorkspace: WorkspaceData = { documents: [], tasks: [] };
 
@@ -78,6 +83,7 @@ export function WorkspaceClient() {
   const [error, setError] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [selectedUploadFileName, setSelectedUploadFileName] = useState<string | null>(null);
+  const [uploadActivity, setUploadActivity] = useState<UploadActivity | null>(null);
   const [deletionTarget, setDeletionTarget] = useState<DeletionTarget | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
@@ -86,6 +92,11 @@ export function WorkspaceClient() {
   const activeConversation = conversations.find((conversation) => conversation.id === conversationId) ?? null;
   const activeTasks = useMemo(() => workspace.tasks.filter((task) => ["QUEUED", "RUNNING"].includes(task.status)), [workspace.tasks]);
   const indexedDocuments = useMemo(() => workspace.documents.filter((document) => document.status === "READY"), [workspace.documents]);
+  const visibleUploadActivity = useMemo(() => {
+    if (!uploadActivity?.documentId) return uploadActivity;
+    const document = workspace.documents.find((item) => item.id === uploadActivity.documentId);
+    return document?.status === "READY" || document?.status === "FAILED" ? null : uploadActivity;
+  }, [uploadActivity, workspace.documents]);
 
   const loadWorkspace = useCallback(async (workspaceId: string) => {
     const [documents, tasks, nextConversations] = await Promise.all([
@@ -153,6 +164,14 @@ export function WorkspaceClient() {
 
   useEffect(() => () => streamAbortRef.current?.abort(), []);
 
+  useEffect(() => {
+    if (!projectId || activeTasks.length === 0) return;
+    const intervalId = window.setInterval(() => {
+      void loadWorkspace(projectId).catch(() => undefined);
+    }, 1500);
+    return () => window.clearInterval(intervalId);
+  }, [activeTasks.length, loadWorkspace, projectId]);
+
   const watchTask = useCallback((taskId: string) => {
     const source = knowTraceApi.taskEvents(taskId);
     const updateTask = (event: Event) => {
@@ -191,25 +210,29 @@ export function WorkspaceClient() {
   }
 
   async function uploadFile(file: File, formElement?: HTMLFormElement) {
-    if (!projectId) return;
+    if (!projectId || isSubmitting) return;
     if (file.size === 0) {
       setError("请选择需要入库的资料文件。");
       return;
     }
     setIsSubmitting(true);
     setError(null);
+    setUploadActivity({ fileName: file.name, stage: "UPLOADING" });
+    setNotice(`正在上传“${file.name}”，请勿关闭页面。`);
     try {
       const form = new FormData();
       form.set("file", file, file.name);
       form.set("kind", "GENERAL");
       const response = await knowTraceApi.uploadDocument(projectId, form);
+      setUploadActivity({ documentId: response.id, fileName: file.name, stage: "PROCESSING" });
       formElement?.reset();
       if (!formElement && uploadInputRef.current) uploadInputRef.current.value = "";
       setSelectedUploadFileName(null);
       await loadWorkspace(projectId);
       watchTask(response.task_id);
-      setNotice("文件已上传，正在解析并建立向量索引。");
+      setNotice(`“${file.name}”已上传，正在解析并建立向量索引。`);
     } catch (caughtError) {
+      setUploadActivity(null);
       setError(readableError(caughtError));
     } finally {
       setIsSubmitting(false);
@@ -428,8 +451,8 @@ export function WorkspaceClient() {
             <header className={styles.filesHeader}><div><p className={styles.eyebrow}>知识库资料</p><h2 id="files-title">文件</h2></div><span>{workspace.documents.length}</span></header>
             <form className={`${styles.uploadForm} ${isDraggingFile ? styles.uploadFormDragging : ""}`} onSubmit={handleUpload} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setIsDraggingFile(true); }} onDragLeave={() => setIsDraggingFile(false)} onDrop={handleFileDrop}>
               <label className={styles.uploadLabel}><span>拖拽文件到这里</span><span>或点击选择文件</span><input ref={uploadInputRef} name="file" type="file" required accept=".txt,.md,.markdown,.csv,.xlsx,.docx,.pdf,.jpg,.jpeg,.png,.webp" onChange={(event) => setSelectedUploadFileName(event.target.files?.[0]?.name ?? null)} disabled={isSubmitting} /></label>
-              <p className={styles.uploadHint}>{selectedUploadFileName ?? "支持 TXT、Markdown、CSV、XLSX、DOCX、PDF 和常见图片"}</p>
-              <button className={styles.primaryButton} type="submit" disabled={isSubmitting}>上传并解析</button>
+              <p className={styles.uploadHint} role={visibleUploadActivity ? "status" : undefined}>{visibleUploadActivity ? <><span className={styles.uploadSpinner} aria-hidden="true" />{visibleUploadActivity.fileName} · {visibleUploadActivity.stage === "UPLOADING" ? "正在上传，请勿关闭页面" : "已上传，正在解析与建立索引"}</> : selectedUploadFileName ?? "支持 TXT、Markdown、CSV、XLSX、DOCX、PDF 和常见图片"}</p>
+              <button className={styles.primaryButton} type="submit" disabled={isSubmitting}>{isSubmitting ? "正在上传…" : "上传并解析"}</button>
             </form>
             <ul className={styles.documentList}>{workspace.documents.map((document) => <li key={document.id}><span className={styles.fileType}>{document.file_name.split(".").pop()?.toUpperCase() ?? "FILE"}</span><div><strong>{document.file_name}</strong><span>{formatBytes(document.size_bytes)} · {documentStatus(document.status)}</span></div></li>)}{!workspace.documents.length ? <li className={styles.documentEmpty}>尚未上传文件。当前版本支持文本、Markdown、表格、DOCX、PDF 和常见图片资料。</li> : null}</ul>
             <section className={styles.taskPanel} aria-labelledby="task-title"><div className={styles.taskHeading}><h3 id="task-title">处理状态</h3><span>{activeTasks.length ? "运行中" : "空闲"}</span></div><ul>{workspace.tasks.slice(0, 3).map((task) => <li key={task.id}><span className={`${styles.taskMarker} ${task.status === "SUCCEEDED" ? styles.taskDone : ""}`} /><div><strong>{task.task_type === "GENERATE_EMBEDDINGS" ? "向量索引" : "文件解析"}</strong><span>{taskDetail(task)}</span></div></li>)}{!workspace.tasks.length ? <li className={styles.taskEmpty}>上传文件后，解析和索引任务会显示在这里。</li> : null}</ul></section>

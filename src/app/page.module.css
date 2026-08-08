@@ -119,6 +119,8 @@
 .uploadLabel input { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 .uploadFormDragging .uploadLabel, .uploadLabel:hover { border-color: var(--color-accent); background: var(--color-accent-soft); }
 .uploadHint { min-block-size: 1.2em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uploadSpinner { display: inline-block; inline-size: 0.75rem; block-size: 0.75rem; margin-inline-end: var(--space-3xs); border: 0.1rem solid var(--color-accent-quiet); border-block-start-color: var(--color-accent); border-radius: 50%; animation: upload-spin 0.75s linear infinite; vertical-align: -0.1rem; }
+@keyframes upload-spin { to { transform: rotate(1turn); } }
 .documentList, .taskPanel ul { display: grid; margin: 0; padding: 0; list-style: none; }
 .documentList li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-xs); padding-block: var(--space-sm); border-block-end: var(--rule-hair) solid var(--color-rule); }
 .fileType { display: grid; inline-size: 2.125rem; block-size: 2.125rem; place-items: center; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-sm); color: var(--color-accent); font-family: var(--font-mono); font-size: 0.625rem; font-weight: 700; }

@@ -24,6 +24,16 @@ export interface KnowledgeDocument {
   updated_at: string;
 }
 
+export interface DocumentUploadResponse {
+  id: string;
+  workspace_id: string;
+  kind: string;
+  file_name: string;
+  status: string;
+  task_id: string;
+  task_status: string;
+}
+
 export interface ProcessingTask {
   id: string;
   workspace_id: string;
@@ -175,7 +185,7 @@ export const knowTraceApi = {
   listDocuments: (workspaceId: string) => request<KnowledgeDocument[]>(`/api/v1/workspaces/${workspaceId}/documents`),
   listTasks: (workspaceId: string) => request<ProcessingTask[]>(`/api/v1/tasks/workspaces/${workspaceId}`),
   uploadDocument: (workspaceId: string, formData: FormData) =>
-    request<{ task_id: string }>(`/api/v1/workspaces/${workspaceId}/documents`, { method: "POST", body: formData }),
+    request<DocumentUploadResponse>(`/api/v1/workspaces/${workspaceId}/documents`, { method: "POST", body: formData }),
   taskEvents: (taskId: string) => new EventSource(`/api/v1/tasks/${taskId}/events`),
   listConversations: (workspaceId: string) => request<Conversation[]>(`/api/v1/workspaces/${workspaceId}/conversations`),
   createConversation: (workspaceId: string, title: string) =>
