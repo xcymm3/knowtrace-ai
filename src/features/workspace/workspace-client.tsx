@@ -167,7 +167,8 @@ export function WorkspaceClient() {
 
   async function handleCreateWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const name = String(form.get("name") ?? "").trim();
     if (!name) return;
     setIsSubmitting(true);
@@ -176,7 +177,7 @@ export function WorkspaceClient() {
       const project = await knowTraceApi.createWorkspace(name);
       setProjects((current) => [project, ...current]);
       setProjectId(project.id);
-      event.currentTarget.reset();
+      formElement.reset();
       setNotice("项目已创建。上传资料后即可开始建立索引。");
     } catch (caughtError) {
       setError(readableError(caughtError));
@@ -188,7 +189,8 @@ export function WorkspaceClient() {
   async function handleUpload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!projectId) return;
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     const file = form.get("file");
     if (!(file instanceof File) || file.size === 0) {
       setError("请选择需要入库的资料文件。");
@@ -199,7 +201,7 @@ export function WorkspaceClient() {
     try {
       form.set("kind", "GENERAL");
       const response = await knowTraceApi.uploadDocument(projectId, form);
-      event.currentTarget.reset();
+      formElement.reset();
       await loadWorkspace(projectId);
       watchTask(response.task_id);
       setNotice("文件已上传，正在解析并建立向量索引。");
