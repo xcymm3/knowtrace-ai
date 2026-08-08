@@ -37,7 +37,11 @@ class OpenAICompatibleEmbeddingProvider:
                 response = await client.post(
                     f"{self._base_url}/embeddings",
                     headers={"Authorization": f"Bearer {self._api_key}"},
-                    json={"model": self._model, "input": texts},
+                    json={
+                        "model": self._model,
+                        "input": texts,
+                        "dimensions": self._dimensions,
+                    },
                 )
                 response.raise_for_status()
                 payload = response.json()
