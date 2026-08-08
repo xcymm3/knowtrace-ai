@@ -19,13 +19,13 @@ docker compose up --build
 
 | 地址 | 服务 |
 | --- | --- |
-| `http://localhost:3000` | KnowTrace 工作台 |
+| `http://localhost:3001` | KnowTrace 工作台（Compose 默认端口） |
 | `http://localhost:8000/docs` | FastAPI OpenAPI 文档 |
 | `http://localhost:8000/api/v1/health` | API 存活检查 |
 
 ## 验收路径
 
-1. 打开 `http://localhost:3000` 并创建工作区。
+1. 打开 `http://localhost:3001` 并创建工作区。
 2. 上传 TXT、Markdown、CSV、XLSX、DOCX 或 PDF 文件。
 3. 在右侧处理状态中等待文件解析与向量索引完成。
 4. 在主面板提问，确认回答逐步出现，并可展开“本次引用”的文件片段。
@@ -46,3 +46,5 @@ docker compose logs -f api worker
 ```
 
 如页面提示无法连接后端，先检查 `docker compose ps` 中 `api` 是否健康，并确认 `.env` 中的 `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`EMBEDDING_*` 与 `LLM_*` 已填写。
+
+如需让 Compose 工作台使用 3000 端口，先停止 `pnpm dev`，再在 `.env` 中设置 `WEB_PORT="3000"`。
