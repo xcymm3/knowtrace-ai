@@ -48,6 +48,33 @@ class SupabaseWorkspaceStore:
             .eq("workspace_id", str(workspace_id))
             .execute()
         ).data or []
+
+        conversations = (
+            self._client.table("conversations")
+            .select("id")
+            .eq("workspace_id", str(workspace_id))
+            .execute()
+        ).data or []
+        conversation_ids = [str(conversation["id"]) for conversation in conversations]
+        if conversation_ids:
+            messages = (
+                self._client.table("conversation_messages")
+                .select("id")
+                .in_("conversation_id", conversation_ids)
+                .execute()
+            ).data or []
+            message_ids = [str(message["id"]) for message in messages]
+            if message_ids:
+                (
+                    self._client.table("message_citations")
+                    .delete()
+                    .in_("message_id", message_ids)
+                    .execute()
+                )
+            self._client.table("conversations").delete().eq(
+                "workspace_id", str(workspace_id)
+            ).execute()
+
         self._client.table("workspaces").delete().eq("id", str(workspace_id)).execute()
 
         paths_by_bucket: dict[str, list[str]] = {}
