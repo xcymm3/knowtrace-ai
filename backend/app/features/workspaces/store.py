@@ -18,30 +18,44 @@ class SupabaseWorkspaceStore:
             raise ApiError(502, "WORKSPACE_CREATE_FAILED", "工作区创建失败。")
         return response.data[0]
 
-    def list_workspaces(self) -> list[dict[str, Any]]:
+    def list_workspaces(self, owner_id: UUID) -> list[dict[str, Any]]:
         response = (
-            self._client.table("workspaces").select("*").order("updated_at", desc=True).execute()
+            self._client.table("workspaces")
+            .select("*")
+            .eq("owner_id", str(owner_id))
+            .order("updated_at", desc=True)
+            .execute()
         )
         return response.data or []
 
-    def get_workspace(self, workspace_id: UUID) -> dict[str, Any]:
+    def get_workspace(self, workspace_id: UUID, owner_id: UUID) -> dict[str, Any]:
         response = (
-            self._client.table("workspaces").select("*").eq("id", str(workspace_id)).execute()
+            self._client.table("workspaces")
+            .select("*")
+            .eq("id", str(workspace_id))
+            .eq("owner_id", str(owner_id))
+            .execute()
         )
         if not response.data:
             raise ApiError(404, "WORKSPACE_NOT_FOUND", "未找到对应的工作区。")
         return response.data[0]
 
-    def update_workspace(self, workspace_id: UUID, data: dict[str, Any]) -> dict[str, Any]:
+    def update_workspace(
+        self, workspace_id: UUID, owner_id: UUID, data: dict[str, Any]
+    ) -> dict[str, Any]:
         response = (
-            self._client.table("workspaces").update(data).eq("id", str(workspace_id)).execute()
+            self._client.table("workspaces")
+            .update(data)
+            .eq("id", str(workspace_id))
+            .eq("owner_id", str(owner_id))
+            .execute()
         )
         if not response.data:
             raise ApiError(404, "WORKSPACE_NOT_FOUND", "未找到对应的工作区。")
         return response.data[0]
 
-    def delete_workspace(self, workspace_id: UUID) -> None:
-        self.get_workspace(workspace_id)
+    def delete_workspace(self, workspace_id: UUID, owner_id: UUID) -> None:
+        self.get_workspace(workspace_id, owner_id)
         documents = (
             self._client.table("workspace_documents")
             .select("storage_bucket,storage_path,metadata")

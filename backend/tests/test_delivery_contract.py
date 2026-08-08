@@ -25,6 +25,7 @@ def test_delivery_files_describe_current_knowtrace_bootstrap() -> None:
     for migration in (
         "20260807000000_create_knowtrace_core.sql",
         "20260807001000_add_parsed_document_status.sql",
+        "20260808000000_add_personal_workspace_ownership.sql",
     ):
         assert migration in docker_guide
         assert migration in supabase_guide

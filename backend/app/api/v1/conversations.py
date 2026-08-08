@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, status
 from fastapi.responses import StreamingResponse
 
+from app.api.auth import get_owned_workspace_id
 from app.api.dependencies import get_rag_conversation_service
 from app.core.errors import ApiError
 from app.features.conversations.schemas import (
@@ -20,8 +21,8 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/conversations", tags=["con
 
 @router.post("", response_model=ConversationResponse, status_code=status.HTTP_201_CREATED)
 async def create_conversation(
-    workspace_id: UUID,
     payload: ConversationCreate,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
     service: RagConversationService = Depends(get_rag_conversation_service),
 ) -> ConversationResponse:
     return await service.create_conversation(workspace_id, payload)
@@ -29,7 +30,7 @@ async def create_conversation(
 
 @router.get("", response_model=list[ConversationResponse])
 async def list_conversations(
-    workspace_id: UUID,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
     service: RagConversationService = Depends(get_rag_conversation_service),
 ) -> list[ConversationResponse]:
     return await service.list_conversations(workspace_id)
@@ -37,8 +38,8 @@ async def list_conversations(
 
 @router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_conversation(
-    workspace_id: UUID,
     conversation_id: UUID,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
     service: RagConversationService = Depends(get_rag_conversation_service),
 ) -> None:
     await service.delete_conversation(workspace_id, conversation_id)
@@ -46,8 +47,8 @@ async def delete_conversation(
 
 @router.get("/{conversation_id}/messages", response_model=list[ConversationMessageResponse])
 async def list_messages(
-    workspace_id: UUID,
     conversation_id: UUID,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
     service: RagConversationService = Depends(get_rag_conversation_service),
 ) -> list[ConversationMessageResponse]:
     return await service.list_messages(workspace_id, conversation_id)
@@ -73,9 +74,9 @@ async def rag_event_stream(
 
 @router.post("/{conversation_id}/messages/stream", summary="Stream a cited RAG answer")
 async def stream_rag_answer(
-    workspace_id: UUID,
     conversation_id: UUID,
     payload: RagQuestionRequest,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
     service: RagConversationService = Depends(get_rag_conversation_service),
 ) -> StreamingResponse:
     turn = await service.prepare_turn(workspace_id, conversation_id, payload)

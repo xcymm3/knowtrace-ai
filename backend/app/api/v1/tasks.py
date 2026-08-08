@@ -7,9 +7,11 @@ import anyio
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
-from app.api.dependencies import get_task_store
+from app.api.auth import CurrentUser, get_current_user, get_owned_workspace_id
+from app.api.dependencies import get_task_store, get_workspace_service
 from app.features.tasks.schemas import TaskStatusResponse
 from app.features.tasks.store import SupabaseTaskStore
+from app.features.workspaces.service import WorkspaceService
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
@@ -19,9 +21,20 @@ async def _get_task_snapshot(store: SupabaseTaskStore, task_id: UUID) -> TaskSta
     return TaskStatusResponse.model_validate(task)
 
 
+async def get_owned_task_id(
+    task_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),
+    store: SupabaseTaskStore = Depends(get_task_store),
+    workspace_service: WorkspaceService = Depends(get_workspace_service),
+) -> UUID:
+    snapshot = await _get_task_snapshot(store, task_id)
+    await workspace_service.get_workspace(snapshot.workspace_id, current_user.id)
+    return task_id
+
+
 @router.get("/{task_id}", response_model=TaskStatusResponse, summary="Read background task state")
 async def get_task(
-    task_id: UUID,
+    task_id: UUID = Depends(get_owned_task_id),
     store: SupabaseTaskStore = Depends(get_task_store),
 ) -> TaskStatusResponse:
     return await _get_task_snapshot(store, task_id)
@@ -33,7 +46,8 @@ async def get_task(
     summary="List workspace tasks",
 )
 async def list_workspace_tasks(
-    workspace_id: UUID, store: SupabaseTaskStore = Depends(get_task_store)
+    workspace_id: UUID = Depends(get_owned_workspace_id),
+    store: SupabaseTaskStore = Depends(get_task_store),
 ) -> list[TaskStatusResponse]:
     tasks = await anyio.to_thread.run_sync(store.list_workspace_tasks, workspace_id)
     return [TaskStatusResponse.model_validate(task) for task in tasks]
@@ -62,7 +76,7 @@ async def task_event_stream(store: SupabaseTaskStore, task_id: UUID) -> AsyncIte
 
 @router.get("/{task_id}/events", summary="Stream background task progress")
 async def stream_task_events(
-    task_id: UUID,
+    task_id: UUID = Depends(get_owned_task_id),
     store: SupabaseTaskStore = Depends(get_task_store),
 ) -> StreamingResponse:
     return StreamingResponse(

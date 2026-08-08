@@ -67,7 +67,12 @@ function Sources({ sources }: { sources: RagSource[] }) {
   );
 }
 
-export function WorkspaceClient() {
+type WorkspaceClientProps = {
+  userEmail: string | null;
+  onSignOut: () => Promise<{ error: Error | null }>;
+};
+
+export function WorkspaceClient({ userEmail, onSignOut }: WorkspaceClientProps) {
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceData>(emptyWorkspace);
@@ -173,22 +178,6 @@ export function WorkspaceClient() {
     return () => window.clearInterval(intervalId);
   }, [activeTasks.length, loadWorkspace, projectId]);
 
-  const watchTask = useCallback((taskId: string) => {
-    const source = knowTraceApi.taskEvents(taskId);
-    const updateTask = (event: Event) => {
-      const payload = JSON.parse((event as MessageEvent<string>).data) as ProcessingTask;
-      setWorkspace((current) => ({ ...current, tasks: [payload, ...current.tasks.filter((task) => task.id !== payload.id)] }));
-    };
-    const complete = () => {
-      source.close();
-      if (projectId) void loadWorkspace(projectId);
-    };
-    source.addEventListener("progress", updateTask);
-    source.addEventListener("complete", (event) => { updateTask(event); complete(); });
-    source.addEventListener("timeout", complete);
-    source.onerror = complete;
-  }, [loadWorkspace, projectId]);
-
   async function handleCreateWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -230,7 +219,6 @@ export function WorkspaceClient() {
       if (!formElement && uploadInputRef.current) uploadInputRef.current.value = "";
       setSelectedUploadFileName(null);
       await loadWorkspace(projectId);
-      watchTask(response.task_id);
       setNotice(`“${file.name}”已上传，正在解析并建立向量索引。`);
     } catch (caughtError) {
       setUploadActivity(null);
@@ -426,7 +414,8 @@ export function WorkspaceClient() {
           </dl>
         </section> : null}
 
-        <div className={styles.sidebarFoot}><span className={styles.statusDot} aria-hidden="true" />RAG MVP · Step 9</div>
+        <div className={styles.accountPanel}><span className={styles.accountEmail}>{userEmail ?? "当前账户"}</span><button className={styles.signOutButton} type="button" onClick={() => void onSignOut()} disabled={isStreaming}>退出登录</button></div>
+        <div className={styles.sidebarFoot}><span className={styles.statusDot} aria-hidden="true" />个人知识库</div>
       </aside>
 
       <main className={styles.main} id="workspace-main">

@@ -1,5 +1,5 @@
-import { WorkspaceClient } from "@/features/workspace/workspace-client";
+import { AuthGate } from "@/features/auth/auth-gate";
 
 export default function Home() {
-  return <WorkspaceClient />;
+  return <AuthGate />;
 }

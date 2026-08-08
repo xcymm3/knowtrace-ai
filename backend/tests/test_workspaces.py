@@ -26,31 +26,38 @@ class FakeWorkspaceStore:
         self.record = {**self.record, **data}
         return self.record
 
-    def list_workspaces(self) -> list[dict[str, object]]:
+    def list_workspaces(self, _owner_id: UUID) -> list[dict[str, object]]:
         return [] if self.deleted else [self.record]
 
-    def get_workspace(self, _workspace_id: UUID) -> dict[str, object]:
+    def get_workspace(self, _workspace_id: UUID, _owner_id: UUID) -> dict[str, object]:
         return self.record
 
-    def update_workspace(self, _workspace_id: UUID, data: dict[str, object]) -> dict[str, object]:
+    def update_workspace(
+        self, _workspace_id: UUID, _owner_id: UUID, data: dict[str, object]
+    ) -> dict[str, object]:
         self.record = {**self.record, **data}
         return self.record
 
-    def delete_workspace(self, _workspace_id: UUID) -> None:
+    def delete_workspace(self, _workspace_id: UUID, _owner_id: UUID) -> None:
         self.deleted = True
 
 
 def test_workspace_service_creates_and_updates_generic_workspace() -> None:
-    service = WorkspaceService(FakeWorkspaceStore())
+    store = FakeWorkspaceStore()
+    service = WorkspaceService(store)
+    owner_id = uuid4()
 
     created = asyncio.run(
-        service.create_workspace(WorkspaceCreate(name="方案资料", description="MVP"))
+        service.create_workspace(WorkspaceCreate(name="方案资料", description="MVP"), owner_id)
     )
-    updated = asyncio.run(service.update_workspace(created.id, WorkspaceUpdate(status="ACTIVE")))
+    updated = asyncio.run(
+        service.update_workspace(created.id, WorkspaceUpdate(status="ACTIVE"), owner_id)
+    )
 
     assert created.name == "方案资料"
     assert created.description == "MVP"
     assert updated.status == "ACTIVE"
+    assert store.record["owner_id"] == str(owner_id)
 
 
 def test_workspace_api_uses_workspace_routes() -> None:

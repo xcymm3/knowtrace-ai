@@ -98,6 +98,9 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
+  const accessToken = await getAccessToken();
+  if (!accessToken) throw new ApiError("登录已失效，请重新登录。", "AUTHENTICATION_REQUIRED");
+  headers.set("Authorization", `Bearer ${accessToken}`);
   if (init?.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
@@ -137,13 +140,16 @@ async function streamRagAnswer(
 ) {
   let response: Response;
   try {
+    const accessToken = await getAccessToken();
+    if (!accessToken) throw new ApiError("登录已失效，请重新登录。", "AUTHENTICATION_REQUIRED");
     response = await fetch(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages/stream`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
       body: JSON.stringify({ question, retrieval_limit: retrievalLimit }),
       signal,
     });
   } catch (error) {
+    if (error instanceof ApiError) throw error;
     if (error instanceof DOMException && error.name === "AbortError") throw error;
     throw new ApiError("无法连接后端服务，请检查 API 地址与部署状态。");
   }
@@ -187,7 +193,6 @@ export const knowTraceApi = {
   listTasks: (workspaceId: string) => request<ProcessingTask[]>(`/api/v1/tasks/workspaces/${workspaceId}`),
   uploadDocument: (workspaceId: string, formData: FormData) =>
     request<DocumentUploadResponse>(`/api/v1/workspaces/${workspaceId}/documents`, { method: "POST", body: formData }),
-  taskEvents: (taskId: string) => new EventSource(`/api/v1/tasks/${taskId}/events`),
   listConversations: (workspaceId: string) => request<Conversation[]>(`/api/v1/workspaces/${workspaceId}/conversations`),
   createConversation: (workspaceId: string, title: string) =>
     request<Conversation>(`/api/v1/workspaces/${workspaceId}/conversations`, {
@@ -200,3 +205,4 @@ export const knowTraceApi = {
     request<ConversationMessage[]>(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`),
   streamRagAnswer,
 };
+import { getAccessToken } from "@/lib/supabase-browser";

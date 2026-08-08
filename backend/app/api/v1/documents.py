@@ -2,6 +2,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
+from app.api.auth import get_owned_workspace_id
 from app.api.dependencies import get_document_ingestion_service
 from app.features.documents.schemas import (
     DocumentKind,
@@ -15,7 +16,7 @@ router = APIRouter(prefix="/workspaces/{workspace_id}/documents", tags=["documen
 
 @router.get("", response_model=list[SourceDocumentResponse], summary="List workspace documents")
 async def list_documents(
-    workspace_id: UUID,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
     service: DocumentIngestionService = Depends(get_document_ingestion_service),
 ) -> list[SourceDocumentResponse]:
     documents = await service.list_documents(workspace_id)
@@ -29,7 +30,7 @@ async def list_documents(
     summary="Upload a knowledge document",
 )
 async def upload_document(
-    workspace_id: UUID,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
     file: UploadFile = File(
         description="TXT, Markdown, CSV, XLSX, DOCX, PDF, JPG, PNG or WEBP knowledge material."
     ),

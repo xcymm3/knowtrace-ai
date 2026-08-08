@@ -5,9 +5,10 @@ Compose 会运行四个本地服务：Next.js `web`、FastAPI `api`、ARQ `worke
 ## 前置条件
 
 1. 安装 Docker Desktop，确认 `docker compose version` 可执行。
-2. 依照 [Supabase 初始化](./supabase-setup.md) 创建项目，并按顺序执行两份 KnowTrace Migration：
+2. 依照 [Supabase 初始化](./supabase-setup.md) 创建项目，并按顺序执行三份 KnowTrace Migration：
    - `20260807000000_create_knowtrace_core.sql`
    - `20260807001000_add_parsed_document_status.sql`
+   - `20260808000000_add_personal_workspace_ownership.sql`
 3. 复制 `.env.example` 为 `.env`，填写 Supabase、Embedding 与 LLM 配置。
 
 ```powershell
@@ -25,11 +26,11 @@ docker compose up --build
 
 ## 验收路径
 
-1. 打开 `http://localhost:3001` 并创建工作区。
-2. 上传 TXT、Markdown、CSV、XLSX、DOCX 或 PDF 文件。
+1. 打开 `http://localhost:3001`，注册或登录一个 Supabase 邮箱账号。
+2. 创建个人知识库并上传 TXT、Markdown、CSV、XLSX、DOCX 或 PDF 文件。
 3. 在右侧处理状态中等待文件解析与向量索引完成。
 4. 在主面板提问，确认回答逐步出现，并可展开“本次引用”的文件片段。
-5. 新建或切换对话，确认历史消息仍能读取。
+5. 退出并登录另一个测试账号，确认其无法查看第一个账号的资料。
 
 ## 停止与排错
 
