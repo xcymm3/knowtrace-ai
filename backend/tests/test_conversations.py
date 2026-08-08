@@ -22,6 +22,7 @@ class FakeConversationStore:
         self.messages: list[dict[str, object]] = []
         self.citations: list[dict[str, object]] = []
         self.touched = False
+        self.deleted = False
         self.conversation = {
             "id": str(self.conversation_id),
             "workspace_id": str(self.workspace_id),
@@ -38,7 +39,12 @@ class FakeConversationStore:
         return self.conversation
 
     def list_conversations(self, _workspace_id: UUID) -> list[dict[str, object]]:
-        return [self.conversation]
+        return [] if self.deleted else [self.conversation]
+
+    def delete_conversation(self, workspace_id: UUID, conversation_id: UUID) -> None:
+        assert workspace_id == self.workspace_id
+        assert conversation_id == self.conversation_id
+        self.deleted = True
 
     def get_conversation(self, workspace_id: UUID, conversation_id: UUID) -> dict[str, object]:
         assert workspace_id == self.workspace_id
@@ -191,3 +197,20 @@ def test_conversation_messages_api_returns_saved_history() -> None:
 
     assert response.status_code == 200
     assert response.json()[0]["role"] == "USER"
+
+
+def test_conversation_api_deletes_workspace_scoped_conversation() -> None:
+    service, store = create_service()
+    app.dependency_overrides[get_rag_conversation_service] = lambda: service
+    client = TestClient(app)
+
+    try:
+        response = client.delete(
+            f"/api/v1/workspaces/{store.workspace_id}/conversations/{store.conversation_id}"
+        )
+        list_response = client.get(f"/api/v1/workspaces/{store.workspace_id}/conversations")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 204
+    assert list_response.json() == []

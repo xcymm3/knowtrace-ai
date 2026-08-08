@@ -35,6 +35,12 @@ class SupabaseConversationStore:
         )
         return response.data or []
 
+    def delete_conversation(self, workspace_id: UUID, conversation_id: UUID) -> None:
+        self.get_conversation(workspace_id, conversation_id)
+        self._client.table("conversations").delete().eq("id", str(conversation_id)).eq(
+            "workspace_id", str(workspace_id)
+        ).execute()
+
     def get_conversation(self, workspace_id: UUID, conversation_id: UUID) -> dict[str, Any]:
         response = (
             self._client.table("conversations")

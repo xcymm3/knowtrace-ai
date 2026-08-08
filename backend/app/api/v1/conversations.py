@@ -35,6 +35,15 @@ async def list_conversations(
     return await service.list_conversations(workspace_id)
 
 
+@router.delete("/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    workspace_id: UUID,
+    conversation_id: UUID,
+    service: RagConversationService = Depends(get_rag_conversation_service),
+) -> None:
+    await service.delete_conversation(workspace_id, conversation_id)
+
+
 @router.get("/{conversation_id}/messages", response_model=list[ConversationMessageResponse])
 async def list_messages(
     workspace_id: UUID,

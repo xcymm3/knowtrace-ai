@@ -32,6 +32,7 @@ class ConversationStore(Protocol):
     def create_message(self, data: dict[str, Any]) -> dict[str, Any]: ...
     def touch_conversation(self, conversation_id: UUID) -> None: ...
     def create_citations(self, rows: list[dict[str, Any]]) -> None: ...
+    def delete_conversation(self, workspace_id: UUID, conversation_id: UUID) -> None: ...
 
 
 class RetrievalService(Protocol):
@@ -83,6 +84,11 @@ class RagConversationService:
             raise ApiError(404, "WORKSPACE_NOT_FOUND", "未找到对应的工作区。")
         records = await asyncio.to_thread(self._store.list_conversations, workspace_id)
         return [ConversationResponse.model_validate(record) for record in records]
+
+    async def delete_conversation(self, workspace_id: UUID, conversation_id: UUID) -> None:
+        await asyncio.to_thread(
+            self._store.delete_conversation, workspace_id, conversation_id
+        )
 
     async def list_messages(
         self, workspace_id: UUID, conversation_id: UUID

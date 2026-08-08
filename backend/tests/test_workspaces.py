@@ -20,13 +20,14 @@ class FakeWorkspaceStore:
             "created_at": "2026-08-07T00:00:00Z",
             "updated_at": "2026-08-07T00:00:00Z",
         }
+        self.deleted = False
 
     def create_workspace(self, data: dict[str, object]) -> dict[str, object]:
         self.record = {**self.record, **data}
         return self.record
 
     def list_workspaces(self) -> list[dict[str, object]]:
-        return [self.record]
+        return [] if self.deleted else [self.record]
 
     def get_workspace(self, _workspace_id: UUID) -> dict[str, object]:
         return self.record
@@ -34,6 +35,9 @@ class FakeWorkspaceStore:
     def update_workspace(self, _workspace_id: UUID, data: dict[str, object]) -> dict[str, object]:
         self.record = {**self.record, **data}
         return self.record
+
+    def delete_workspace(self, _workspace_id: UUID) -> None:
+        self.deleted = True
 
 
 def test_workspace_service_creates_and_updates_generic_workspace() -> None:
@@ -63,3 +67,19 @@ def test_workspace_api_uses_workspace_routes() -> None:
     assert create_response.status_code == 201
     assert list_response.status_code == 200
     assert list_response.json()[0]["name"] == "会议资料"
+
+
+def test_workspace_api_deletes_workspace() -> None:
+    store = FakeWorkspaceStore()
+    service = WorkspaceService(store)
+    app.dependency_overrides[get_workspace_service] = lambda: service
+    client = TestClient(app)
+
+    try:
+        response = client.delete(f"/api/v1/workspaces/{store.workspace_id}")
+        list_response = client.get("/api/v1/workspaces")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 204
+    assert list_response.json() == []

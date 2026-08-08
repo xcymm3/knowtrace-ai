@@ -14,6 +14,7 @@ class WorkspaceStore(Protocol):
     def update_workspace(
         self, workspace_id: UUID, data: dict[str, object]
     ) -> dict[str, object]: ...
+    def delete_workspace(self, workspace_id: UUID) -> None: ...
 
 
 class WorkspaceService:
@@ -42,3 +43,6 @@ class WorkspaceService:
             return await self.get_workspace(workspace_id)
         record = await asyncio.to_thread(self._store.update_workspace, workspace_id, data)
         return WorkspaceResponse.model_validate(record)
+
+    async def delete_workspace(self, workspace_id: UUID) -> None:
+        await asyncio.to_thread(self._store.delete_workspace, workspace_id)

@@ -102,6 +102,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const payload = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
     throw new ApiError(payload?.error?.message ?? "请求失败，请稍后重试。", payload?.error?.code);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
 }
 
@@ -169,6 +170,8 @@ export const knowTraceApi = {
       method: "POST",
       body: JSON.stringify({ name }),
     }),
+  deleteWorkspace: (workspaceId: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}`, { method: "DELETE" }),
   listDocuments: (workspaceId: string) => request<KnowledgeDocument[]>(`/api/v1/workspaces/${workspaceId}/documents`),
   listTasks: (workspaceId: string) => request<ProcessingTask[]>(`/api/v1/tasks/workspaces/${workspaceId}`),
   uploadDocument: (workspaceId: string, formData: FormData) =>
@@ -180,6 +183,8 @@ export const knowTraceApi = {
       method: "POST",
       body: JSON.stringify({ title }),
     }),
+  deleteConversation: (workspaceId: string, conversationId: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}`, { method: "DELETE" }),
   listMessages: (workspaceId: string, conversationId: string) =>
     request<ConversationMessage[]>(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`),
   streamRagAnswer,

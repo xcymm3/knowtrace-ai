@@ -39,3 +39,11 @@ async def update_workspace(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceResponse:
     return await service.update_workspace(workspace_id, payload)
+
+
+@router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_workspace(
+    workspace_id: UUID,
+    service: WorkspaceService = Depends(get_workspace_service),
+) -> None:
+    await service.delete_workspace(workspace_id)
