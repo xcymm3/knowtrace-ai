@@ -16,6 +16,9 @@ import {
 import styles from "@/app/page.module.css";
 
 type WorkspaceData = { documents: KnowledgeDocument[]; tasks: ProcessingTask[] };
+type DeletionTarget =
+  | { kind: "workspace"; workspace: WorkspaceProject }
+  | { kind: "conversation"; conversation: Conversation };
 
 const emptyWorkspace: WorkspaceData = { documents: [], tasks: [] };
 
@@ -69,11 +72,13 @@ export function WorkspaceClient() {
   const [question, setQuestion] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isDraggingFile, setIsDraggingFile] = useState(false);
   const [selectedUploadFileName, setSelectedUploadFileName] = useState<string | null>(null);
+  const [deletionTarget, setDeletionTarget] = useState<DeletionTarget | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -231,24 +236,41 @@ export function WorkspaceClient() {
     void uploadFile(file);
   }
 
-  async function handleDeleteWorkspace(workspaceProject: WorkspaceProject) {
-    if (isStreaming || !window.confirm(`删除知识库“${workspaceProject.name}”？其中的文件、索引和全部对话将一并删除。`)) return;
+  async function confirmDeletion() {
+    if (!deletionTarget || isDeleting) return;
+    setIsDeleting(true);
     setError(null);
     try {
-      await knowTraceApi.deleteWorkspace(workspaceProject.id);
-      const remaining = projects.filter((project) => project.id !== workspaceProject.id);
-      setProjects(remaining);
-      if (projectId === workspaceProject.id) {
-        streamAbortRef.current?.abort();
-        setProjectId(remaining[0]?.id ?? null);
-        setWorkspace(emptyWorkspace);
-        setConversations([]);
-        setConversationId(null);
-        setMessages([]);
+      if (deletionTarget.kind === "workspace") {
+        const { workspace: workspaceProject } = deletionTarget;
+        await knowTraceApi.deleteWorkspace(workspaceProject.id);
+        const remaining = projects.filter((project) => project.id !== workspaceProject.id);
+        setProjects(remaining);
+        if (projectId === workspaceProject.id) {
+          streamAbortRef.current?.abort();
+          setProjectId(remaining[0]?.id ?? null);
+          setWorkspace(emptyWorkspace);
+          setConversations([]);
+          setConversationId(null);
+          setMessages([]);
+        }
+        setNotice(`知识库“${workspaceProject.name}”已删除。`);
+      } else if (projectId) {
+        const { conversation } = deletionTarget;
+        await knowTraceApi.deleteConversation(projectId, conversation.id);
+        const remaining = conversations.filter((item) => item.id !== conversation.id);
+        setConversations(remaining);
+        if (conversationId === conversation.id) {
+          setConversationId(remaining[0]?.id ?? null);
+          setMessages([]);
+        }
+        setNotice(`对话“${conversation.title}”已删除。`);
       }
-      setNotice(`知识库“${workspaceProject.name}”已删除。`);
+      setDeletionTarget(null);
     } catch (caughtError) {
       setError(readableError(caughtError));
+    } finally {
+      setIsDeleting(false);
     }
   }
 
@@ -260,23 +282,6 @@ export function WorkspaceClient() {
       setConversations((current) => [conversation, ...current]);
       setConversationId(conversation.id);
       setMessages([]);
-    } catch (caughtError) {
-      setError(readableError(caughtError));
-    }
-  }
-
-  async function handleDeleteConversation(conversation: Conversation) {
-    if (!projectId || isStreaming || !window.confirm(`删除对话“${conversation.title}”？该对话中的全部消息将一并删除。`)) return;
-    setError(null);
-    try {
-      await knowTraceApi.deleteConversation(projectId, conversation.id);
-      const remaining = conversations.filter((item) => item.id !== conversation.id);
-      setConversations(remaining);
-      if (conversationId === conversation.id) {
-        setConversationId(remaining[0]?.id ?? null);
-        setMessages([]);
-      }
-      setNotice(`对话“${conversation.title}”已删除。`);
     } catch (caughtError) {
       setError(readableError(caughtError));
     }
@@ -371,7 +376,7 @@ export function WorkspaceClient() {
                 <button className={`${styles.projectItem} ${project.id === projectId ? styles.projectItemActive : ""}`} type="button" onClick={() => setProjectId(project.id)} aria-pressed={project.id === projectId} disabled={isStreaming}>
                   <span className={styles.projectItemName}>{project.name}</span>
                 </button>
-                <button className={styles.deleteRailItem} type="button" onClick={() => void handleDeleteWorkspace(project)} aria-label={`删除知识库 ${project.name}`} title="删除知识库" disabled={isStreaming}>×</button>
+                <button className={styles.deleteRailItem} type="button" onClick={() => setDeletionTarget({ kind: "workspace", workspace: project })} aria-label={`删除知识库 ${project.name}`} title="删除知识库" disabled={isStreaming || isDeleting}>×</button>
               </div>
             ))}
             {!projects.length && !isLoading ? <p className={styles.railEmpty}>建立一个知识库，将资料和后续对话放在同一范围内。</p> : null}
@@ -381,7 +386,7 @@ export function WorkspaceClient() {
         {activeProject ? <section className={styles.conversationNavigation} aria-labelledby="conversations-title">
           <div className={styles.railHeading}><h2 id="conversations-title">对话</h2><button className={styles.railAction} type="button" onClick={handleCreateConversation} disabled={isStreaming}>新建</button></div>
           <div className={styles.conversationList} role="list">
-            {conversations.map((conversation) => <div className={styles.railItem} key={conversation.id} role="listitem"><button className={`${styles.conversationItem} ${conversation.id === conversationId ? styles.conversationItemActive : ""}`} type="button" onClick={() => setConversationId(conversation.id)} aria-pressed={conversation.id === conversationId} disabled={isStreaming}>{conversation.title}</button><button className={styles.deleteRailItem} type="button" onClick={() => void handleDeleteConversation(conversation)} aria-label={`删除对话 ${conversation.title}`} title="删除对话" disabled={isStreaming}>×</button></div>)}
+            {conversations.map((conversation) => <div className={styles.railItem} key={conversation.id} role="listitem"><button className={`${styles.conversationItem} ${conversation.id === conversationId ? styles.conversationItemActive : ""}`} type="button" onClick={() => setConversationId(conversation.id)} aria-pressed={conversation.id === conversationId} disabled={isStreaming}>{conversation.title}</button><button className={styles.deleteRailItem} type="button" onClick={() => setDeletionTarget({ kind: "conversation", conversation })} aria-label={`删除对话 ${conversation.title}`} title="删除对话" disabled={isStreaming || isDeleting}>×</button></div>)}
             {!conversations.length ? <p className={styles.railEmpty}>第一次提问时会自动建立一段对话。</p> : null}
           </div>
         </section> : null}
@@ -431,6 +436,17 @@ export function WorkspaceClient() {
           </aside>
         </div> : null}
       </main>
+      {deletionTarget ? <div className={styles.dialogBackdrop} role="presentation">
+        <section className={styles.confirmDialog} role="alertdialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description">
+          <p className={styles.eyebrow}>确认操作</p>
+          <h2 id="delete-dialog-title">删除{deletionTarget.kind === "workspace" ? "知识库" : "对话"}？</h2>
+          <p id="delete-dialog-description">{deletionTarget.kind === "workspace" ? <>“{deletionTarget.workspace.name}”中的文件、索引和全部对话将一并删除，且无法恢复。</> : <>“{deletionTarget.conversation.title}”中的全部消息将被删除，且无法恢复。</>}</p>
+          <div className={styles.dialogActions}>
+            <button className={styles.secondaryButton} type="button" onClick={() => setDeletionTarget(null)} disabled={isDeleting}>取消</button>
+            <button className={styles.dangerButton} type="button" onClick={() => void confirmDeletion()} disabled={isDeleting}>{isDeleting ? "删除中…" : "确认删除"}</button>
+          </div>
+        </section>
+      </div> : null}
     </div>
   );
 }
