@@ -414,8 +414,7 @@ export function WorkspaceClient({ userEmail, onSignOut }: WorkspaceClientProps) 
           </dl>
         </section> : null}
 
-        <div className={styles.accountPanel}><span className={styles.accountEmail}>{userEmail ?? "当前账户"}</span><button className={styles.signOutButton} type="button" onClick={() => void onSignOut()} disabled={isStreaming}>退出登录</button></div>
-        <div className={styles.sidebarFoot}><span className={styles.statusDot} aria-hidden="true" />个人知识库</div>
+        <div className={styles.accountPanel}><span className={styles.accountEmail}>当前用户：{userEmail ?? "当前账户"}</span><button className={styles.signOutButton} type="button" onClick={() => void onSignOut()} disabled={isStreaming}>退出登录</button></div>
       </aside>
 
       <main className={styles.main} id="workspace-main">
