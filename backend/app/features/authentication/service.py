@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 import asyncio
+import re
 from typing import Any
 
 import httpx
 
 from app.core.config import Settings
 from app.core.errors import ApiError
-from app.features.authentication.schemas import UsernameSignInRequest, UsernameSignInResponse
+from app.features.authentication.schemas import (
+    UsernameAvailabilityResponse,
+    UsernameSignInRequest,
+    UsernameSignInResponse,
+)
 from app.features.documents.store import create_supabase_client
 
 
@@ -16,6 +21,34 @@ class UsernameSignInService:
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
+
+    def username_availability(self, username: str) -> UsernameAvailabilityResponse:
+        normalized_username = username.strip().lower()
+        if not re.fullmatch(r"[A-Za-z0-9_-]{3,32}", normalized_username):
+            raise ApiError(
+                422,
+                "USERNAME_INVALID",
+                "用户名需为 3–32 位字母、数字、下划线或连字符。",
+            )
+
+        try:
+            response = (
+                create_supabase_client(self._settings)
+                .table("profiles")
+                .select("id")
+                .eq("username", normalized_username)
+                .limit(1)
+                .execute()
+            )
+        except ApiError:
+            raise
+        except Exception as error:
+            raise ApiError(
+                503,
+                "USERNAME_CHECK_UNAVAILABLE",
+                "暂时无法检查用户名，请稍后重试。",
+            ) from error
+        return UsernameAvailabilityResponse(available=not bool(response.data))
 
     def _resolve_email(self, identity: str) -> str:
         normalized_identity = identity.strip().lower()

@@ -88,10 +88,13 @@
 .passwordStrength[data-level="2"] > span:nth-child(-n + 2) { background: var(--color-warning); transform: scaleX(1); }
 .passwordStrength[data-level="3"] > span:nth-child(-n + 3) { background: var(--color-accent); transform: scaleX(1); }
 .passwordStrength[data-level="4"] > span { background: var(--color-success); transform: scaleX(1); }
-.passwordStrength p, .passwordMatch, .passwordMismatch { grid-column: 1 / -1; margin: var(--space-3xs) 0 0; color: var(--color-muted); font-family: var(--font-body); font-size: 0.625rem; line-height: 1.5; }
+.passwordStrength p, .passwordMatch, .passwordMismatch, .usernameStatus, .usernameAvailable { grid-column: 1 / -1; margin: var(--space-3xs) 0 0; color: var(--color-muted); font-family: var(--font-body); font-size: 0.625rem; line-height: 1.5; }
 .passwordStrength strong { color: var(--color-ink-soft); font-weight: 680; }
 .passwordMatch { color: var(--color-success); }
 .passwordMismatch { color: var(--color-error); }
+.usernameStatus { color: var(--color-muted); }
+.usernameStatus[data-state="taken"] { color: var(--color-error); }
+.usernameAvailable { color: var(--color-success); }
 .authError, .authNotice { margin: 0; padding: var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); font-family: var(--font-body); font-size: var(--text-xs); line-height: 1.5; }
 .authError { border-color: color-mix(in oklch, var(--color-error) 45%, var(--color-rule)); color: var(--color-ink-soft); }
 .authNotice { border-color: color-mix(in oklch, var(--color-success) 45%, var(--color-rule)); color: var(--color-ink-soft); }

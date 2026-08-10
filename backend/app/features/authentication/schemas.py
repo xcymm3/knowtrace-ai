@@ -11,3 +11,7 @@ class UsernameSignInResponse(BaseModel):
     refresh_token: str
     expires_in: int
     token_type: str
+
+
+class UsernameAvailabilityResponse(BaseModel):
+    available: bool

@@ -1,9 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
-  <title id="title">局势索引</title>
-  <desc id="desc">暖棕色地球与信息传播波纹图标</desc>
-  <rect width="64" height="64" rx="18" fill="#9b4d2a"/>
-  <circle cx="30" cy="32" r="17" fill="none" stroke="#fff8ef" stroke-width="3"/>
-  <path d="M13 32h34M30 15c6 5 8 11 8 17s-2 12-8 17M30 15c-6 5-8 11-8 17s2 12 8 17" fill="none" stroke="#fff8ef" stroke-linecap="round" stroke-width="2.5"/>
-  <path d="M45 23c4 2 6 5 6 9s-2 7-6 9M50 18c6 3 9 8 9 14s-3 11-9 14" fill="none" stroke="#f2ca9f" stroke-linecap="round" stroke-width="2.5"/>
-  <circle cx="30" cy="32" r="3.5" fill="#f2ca9f"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-labelledby="title desc">
+  <title id="title">KnowTrace</title>
+  <desc id="desc">文档、证据节点与回溯路径图标</desc>
+  <rect x="3.5" y="3.5" width="41" height="41" rx="12.5" fill="#F8FBFF" stroke="#2F78EA" stroke-width="3"/>
+  <path d="M16 14.5H28.5L33 19V32.5C33 33.6046 32.1046 34.5 31 34.5H16C14.8954 34.5 14 33.6046 14 32.5V16.5C14 15.3954 14.8954 14.5 16 14.5Z" fill="white" stroke="#2F78EA" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M28.5 14.5V19H33" stroke="#2F78EA" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M18.5 23H26.5M18.5 28H23.5" stroke="#1A3A66" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M28.5 27.5C28.5 29.9853 26.4853 32 24 32" stroke="#2F78EA" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="28.5" cy="24" r="2.5" fill="#2F78EA"/>
+  <circle cx="23" cy="32" r="2.5" fill="#2F78EA"/>
 </svg>

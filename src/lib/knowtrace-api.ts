@@ -90,6 +90,10 @@ export interface UsernameSignInSession {
   token_type: string;
 }
 
+export interface UsernameAvailability {
+  available: boolean;
+}
+
 type RagStreamEvent =
   | { event: "retrieval"; data: { conversation_id: string; sources: RagSource[] } }
   | { event: "token"; data: { delta: string } }
@@ -142,6 +146,20 @@ async function signInWithIdentity(identity: string, password: string): Promise<U
     throw new ApiError(payload?.error?.message ?? "登录失败，请稍后重试。", payload?.error?.code);
   }
   return response.json() as Promise<UsernameSignInSession>;
+}
+
+async function checkUsernameAvailability(username: string): Promise<UsernameAvailability> {
+  let response: Response;
+  try {
+    response = await fetch(`/api/v1/auth/username-availability?username=${encodeURIComponent(username)}`);
+  } catch {
+    throw new ApiError("暂时无法检查用户名，请稍后重试。", "USERNAME_CHECK_UNAVAILABLE");
+  }
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+    throw new ApiError(payload?.error?.message ?? "暂时无法检查用户名，请稍后重试。", payload?.error?.code);
+  }
+  return response.json() as Promise<UsernameAvailability>;
 }
 
 function parseSseBlock(block: string): RagStreamEvent | null {
@@ -207,6 +225,7 @@ async function streamRagAnswer(
 
 export const knowTraceApi = {
   signInWithIdentity,
+  checkUsernameAvailability,
   listWorkspaces: () => request<WorkspaceProject[]>("/api/v1/workspaces"),
   createWorkspace: (name: string) =>
     request<WorkspaceProject>("/api/v1/workspaces", {

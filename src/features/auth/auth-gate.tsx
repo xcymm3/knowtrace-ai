@@ -10,6 +10,7 @@ import { knowTraceApi } from "@/lib/knowtrace-api";
 import { getSupabaseBrowserClient, supabaseAuthConfigured } from "@/lib/supabase-browser";
 
 type AuthMode = "sign-in" | "sign-up";
+type UsernameAvailabilityStatus = "idle" | "checking" | "available" | "taken";
 
 const usernamePattern = /^[A-Za-z0-9_-]{3,32}$/;
 const e2eTestMode = process.env.NEXT_PUBLIC_E2E_TEST_MODE === "true";
@@ -110,6 +111,7 @@ function AuthForm() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
+  const [usernameAvailability, setUsernameAvailability] = useState<UsernameAvailabilityStatus>("idle");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -121,6 +123,27 @@ function AuthForm() {
     setNotice(null);
     setPassword("");
     setConfirmation("");
+    setUsernameAvailability("idle");
+  }
+
+  async function checkUsernameAvailability(candidate: string): Promise<boolean> {
+    setUsernameAvailability("checking");
+    const { available } = await knowTraceApi.checkUsernameAvailability(candidate);
+    setUsernameAvailability(available ? "available" : "taken");
+    return available;
+  }
+
+  async function handleUsernameBlur() {
+    const candidate = username.trim();
+    if (!usernamePattern.test(candidate)) {
+      setUsernameAvailability("idle");
+      return;
+    }
+    try {
+      await checkUsernameAvailability(candidate);
+    } catch {
+      setUsernameAvailability("idle");
+    }
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -163,6 +186,11 @@ function AuthForm() {
         });
         if (sessionError) throw sessionError;
       } else {
+        const usernameIsAvailable = await checkUsernameAvailability(normalizedUsername);
+        if (!usernameIsAvailable) {
+          setError("用户名已被使用，请换一个。");
+          return;
+        }
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: normalizedEmail,
           password,
@@ -195,7 +223,8 @@ function AuthForm() {
             <>
               <div className={styles.authField}>
                 <label htmlFor="username">用户名</label>
-                <input id="username" type="text" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="3–32 位字母、数字、_ 或 -" required disabled={isSubmitting} />
+                <input id="username" type="text" autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setUsernameAvailability("idle"); }} onBlur={handleUsernameBlur} placeholder="3–32 位字母、数字、_ 或 -" required disabled={isSubmitting} />
+                {usernameAvailability !== "idle" ? <p className={usernameAvailability === "available" ? styles.usernameAvailable : styles.usernameStatus} data-state={usernameAvailability} aria-live="polite">{usernameAvailability === "checking" ? "正在检查用户名…" : usernameAvailability === "available" ? "用户名可用" : "用户名已被使用"}</p> : null}
               </div>
               <div className={styles.authField}>
                 <label htmlFor="email">邮箱</label>
