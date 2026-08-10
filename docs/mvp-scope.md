@@ -12,14 +12,14 @@
 ## 首期能力
 
 - 工作区及独立文件、会话范围。
-- PDF、DOCX、TXT、Markdown、CSV、XLSX 和常见图片的上传与私有存储。
+- PDF、DOCX、TXT、Markdown、CSV、XLSX 的上传与私有存储。
 - Redis Worker 异步解析、切片、Embedding、失败重试和 SSE 任务进度。
 - 基于 pgvector 与 PostgreSQL 全文检索的工作区内混合检索。
 - 基于 LangChain 的流式 RAG 回答、历史消息与可展开引用片段。
 
 ## 明确不做
 
-- 用户登录、多租户隔离、团队权限和计费。
+- 团队协作、角色权限和计费。
 - 本地模型管理、模型市场、多模型路由和复杂 Agent 工具调用。
 - 联网搜索、网页抓取、OCR 与图片内容理解。
 - 自动修改或生成业务资料；系统只基于用户已上传的资料回答。

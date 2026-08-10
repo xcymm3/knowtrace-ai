@@ -7,7 +7,7 @@ KnowTrace 的目标不是泛用聊天，而是让每次回答都能回到具体�
 ## 已实现的 MVP
 
 1. **个人知识库隔离**：Supabase 邮箱登录后，每个用户仅能访问自己创建的知识库、资料、任务和对话。
-2. **文件入库**：支持 TXT、Markdown、CSV、XLSX、DOCX、PDF 及常见图片；原文件存入 Supabase Storage。
+2. **文件入库**：支持 TXT、Markdown、CSV、XLSX、DOCX 与 PDF；原文件存入 Supabase Storage。
 3. **异步处理**：FastAPI 创建任务，Redis + ARQ Worker 负责解析、切片、Embedding、失败重试和进度记录。
 4. **混合检索**：PostgreSQL + pgvector 结合向量相似度与全文关键词检索，只查询当前工作区已索引资料。
 5. **引用式 RAG 对话**：LangChain 调用 OpenAI-compatible 模型；回答通过 SSE 流式返回，并保留文件名、片段位置和摘录。
@@ -76,6 +76,8 @@ Vercel 适合部署 Next.js 前端，但不能单独承载持续消费 Redis 队
 - [MVP 范围](docs/mvp-scope.md)
 - [数据模型](docs/data-model.md)
 - [API 契约](docs/api-contract.md)
+- [RAG 质量验证](docs/rag-quality.md)
+- [前端端到端测试](docs/end-to-end-testing.md)
 - [Supabase 初始化](docs/supabase-setup.md)
 - [Docker Compose 运行](docs/run-with-docker.md)
 - [部署说明](docs/deployment.md)

@@ -1,0 +1,8 @@
+[
+  {
+    "id": "meeting-decision",
+    "question": "会议最终决定了什么？",
+    "expected_sources": ["会议纪要.md"],
+    "expected_answer_terms": ["继续推进", "张三"]
+  }
+]

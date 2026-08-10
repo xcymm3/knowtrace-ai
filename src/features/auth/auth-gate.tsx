@@ -11,6 +11,26 @@ import { getSupabaseBrowserClient, supabaseAuthConfigured } from "@/lib/supabase
 type AuthMode = "sign-in" | "sign-up";
 
 const usernamePattern = /^[A-Za-z0-9_-]{3,32}$/;
+const e2eTestMode = process.env.NEXT_PUBLIC_E2E_TEST_MODE === "true";
+
+function e2eSession(): Session | null {
+  if (!e2eTestMode || typeof window === "undefined") return null;
+  if (window.localStorage.getItem("knowtrace-e2e-session") !== "signed-in") return null;
+  return {
+    access_token: "e2e-access-token",
+    refresh_token: "e2e-refresh-token",
+    expires_in: 3600,
+    expires_at: Math.floor(Date.now() / 1000) + 3600,
+    token_type: "bearer",
+    user: {
+      id: "44444444-4444-4444-8444-444444444444",
+      aud: "authenticated",
+      role: "authenticated",
+      email: "e2e@example.com",
+      user_metadata: { username: "e2e-user" },
+    },
+  } as unknown as Session;
+}
 
 function displayName(session: Session) {
   const username = session.user.user_metadata.username;
@@ -35,17 +55,34 @@ export function AuthGate() {
   const [isLoading, setIsLoading] = useState(supabaseAuthConfigured);
 
   useEffect(() => {
+    if (e2eTestMode) {
+      const frameId = window.requestAnimationFrame(() => {
+        setSession(e2eSession());
+        setIsLoading(false);
+      });
+      return () => window.cancelAnimationFrame(frameId);
+    }
     if (!supabaseAuthConfigured) return;
     const supabase = getSupabaseBrowserClient();
-    void supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setIsLoading(false);
-    });
+    let active = true;
+    void supabase.auth.getSession()
+      .then(({ data }) => {
+        if (active) setSession(data.session);
+      })
+      .catch(() => {
+        if (active) setSession(null);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession);
       setIsLoading(false);
     });
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   if (isLoading) {
