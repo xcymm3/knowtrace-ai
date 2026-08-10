@@ -8,7 +8,7 @@
 
 .sidebar { display: flex; flex-direction: column; min-block-size: 100dvh; padding: var(--space-md); border-inline-end: var(--rule-hair) solid var(--color-rule); background: var(--color-panel); }
 .brand { display: inline-flex; align-items: center; gap: var(--space-2xs); color: var(--color-accent); font-family: var(--font-display); font-size: var(--text-lg); font-weight: 720; letter-spacing: -0.055em; text-decoration: none; }
-.brandMark { display: grid; inline-size: var(--space-md); block-size: var(--space-md); place-items: center; border: var(--rule-focus) solid currentColor; border-radius: var(--radius-sm); font-size: var(--text-base); line-height: 1; }
+.brandMark { display: block; flex: 0 0 auto; inline-size: var(--space-md); block-size: var(--space-md); }
 .brandSubline { margin: var(--space-xs) 0 var(--space-xl); color: var(--color-muted); font-family: var(--font-body); font-size: var(--text-xs); }
 .projectNavigation { min-block-size: 0; }
 .railHeading, .filesHeader, .workspaceHeader, .taskHeading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-xs); }

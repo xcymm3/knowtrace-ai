@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import { DragEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
@@ -373,7 +374,7 @@ export function WorkspaceClient({ userName, userEmail, onSignOut }: WorkspaceCli
     <div className={styles.page}>
       <a className={styles.skipLink} href="#workspace-main">跳至主内容</a>
       <aside className={styles.sidebar} aria-label="KnowTrace 知识库导航">
-        <a className={styles.brand} href="#workspace-main"><span className={styles.brandMark} aria-hidden="true">◫</span>KnowTrace</a>
+        <a className={styles.brand} href="#workspace-main"><Image className={styles.brandMark} src="/knowtrace-mark.svg" width={48} height={48} alt="" priority />KnowTrace</a>
         <p className={styles.brandSubline}>可追溯知识工作台</p>
 
         <section className={styles.projectNavigation} aria-labelledby="projects-title">

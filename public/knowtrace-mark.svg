@@ -1,0 +1,10 @@
+<svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <title>KnowTrace</title>
+  <rect x="3.5" y="3.5" width="41" height="41" rx="12.5" fill="#F8FBFF" stroke="#2F78EA" stroke-width="3"/>
+  <path d="M16 14.5H28.5L33 19V32.5C33 33.6046 32.1046 34.5 31 34.5H16C14.8954 34.5 14 33.6046 14 32.5V16.5C14 15.3954 14.8954 14.5 16 14.5Z" fill="white" stroke="#2F78EA" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M28.5 14.5V19H33" stroke="#2F78EA" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M18.5 23H26.5M18.5 28H23.5" stroke="#1A3A66" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="M28.5 27.5C28.5 29.9853 26.4853 32 24 32" stroke="#2F78EA" stroke-width="2.5" stroke-linecap="round"/>
+  <circle cx="28.5" cy="24" r="2.5" fill="#2F78EA"/>
+  <circle cx="23" cy="32" r="2.5" fill="#2F78EA"/>
+</svg>
