@@ -83,6 +83,13 @@ export interface ConversationMessage {
   sources: RagSource[];
 }
 
+export interface UsernameSignInSession {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+  token_type: string;
+}
+
 type RagStreamEvent =
   | { event: "retrieval"; data: { conversation_id: string; sources: RagSource[] } }
   | { event: "token"; data: { delta: string } }
@@ -117,6 +124,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+async function signInWithIdentity(identity: string, password: string): Promise<UsernameSignInSession> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v1/auth/sign-in", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ identity, password }),
+    });
+  } catch {
+    throw new ApiError("无法连接登录服务，请检查 API 地址与部署状态。");
+  }
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+    throw new ApiError(payload?.error?.message ?? "登录失败，请稍后重试。", payload?.error?.code);
+  }
+  return response.json() as Promise<UsernameSignInSession>;
 }
 
 function parseSseBlock(block: string): RagStreamEvent | null {
@@ -181,6 +206,7 @@ async function streamRagAnswer(
 }
 
 export const knowTraceApi = {
+  signInWithIdentity,
   listWorkspaces: () => request<WorkspaceProject[]>("/api/v1/workspaces"),
   createWorkspace: (name: string) =>
     request<WorkspaceProject>("/api/v1/workspaces", {

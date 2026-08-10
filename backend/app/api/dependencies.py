@@ -1,6 +1,7 @@
 from functools import lru_cache
 
 from app.core.config import get_settings
+from app.features.authentication.service import UsernameSignInService
 from app.features.conversations.service import RagConversationService
 from app.features.conversations.store import SupabaseConversationStore
 from app.features.documents.service import DocumentIngestionService
@@ -13,6 +14,11 @@ from app.features.tasks.queue import ArqTaskQueue
 from app.features.tasks.store import SupabaseTaskStore
 from app.features.workspaces.service import WorkspaceService
 from app.features.workspaces.store import SupabaseWorkspaceStore
+
+
+@lru_cache
+def get_username_sign_in_service() -> UsernameSignInService:
+    return UsernameSignInService(get_settings())
 
 
 @lru_cache

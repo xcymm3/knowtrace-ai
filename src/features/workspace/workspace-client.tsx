@@ -68,11 +68,12 @@ function Sources({ sources }: { sources: RagSource[] }) {
 }
 
 type WorkspaceClientProps = {
+  userName: string;
   userEmail: string | null;
   onSignOut: () => Promise<{ error: Error | null }>;
 };
 
-export function WorkspaceClient({ userEmail, onSignOut }: WorkspaceClientProps) {
+export function WorkspaceClient({ userName, userEmail, onSignOut }: WorkspaceClientProps) {
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceData>(emptyWorkspace);
@@ -414,7 +415,14 @@ export function WorkspaceClient({ userEmail, onSignOut }: WorkspaceClientProps) 
           </dl>
         </section> : null}
 
-        <div className={styles.accountPanel}><span className={styles.accountEmail}>当前用户：{userEmail ?? "当前账户"}</span><button className={styles.signOutButton} type="button" onClick={() => void onSignOut()} disabled={isStreaming}>退出登录</button></div>
+        <div className={styles.accountPanel}>
+          <div className={styles.accountIdentity}>
+            <span className={styles.accountLabel}>当前用户：</span>
+            <strong className={styles.accountName}>{userName}</strong>
+            <span className={styles.accountEmail} title={userEmail ?? "未提供邮箱"}>{userEmail ?? "未提供邮箱"}</span>
+          </div>
+          <button className={styles.signOutButton} type="button" onClick={() => void onSignOut()} disabled={isStreaming}>退出登录</button>
+        </div>
       </aside>
 
       <main className={styles.main} id="workspace-main">

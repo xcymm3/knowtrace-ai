@@ -5,6 +5,7 @@ Supabase 是 KnowTrace 的身份认证与持久化层。浏览器使用 Publisha
 ```mermaid
 erDiagram
   AUTH_USERS ||--o{ WORKSPACES : owns
+  AUTH_USERS ||--|| PROFILES : identifies
   WORKSPACES ||--o{ WORKSPACE_DOCUMENTS : contains
   WORKSPACES ||--o{ PROCESSING_TASKS : owns
   WORKSPACES ||--o{ CONVERSATIONS : contains
@@ -18,6 +19,7 @@ erDiagram
 | 实体 | 用途 |
 | --- | --- |
 | `workspaces` | 个人知识库边界：`owner_id` 关联 Supabase Auth 用户，并保存名称、描述、状态和审计时间。 |
+| `profiles` | 用户名与邮箱的受控映射；用户名唯一，并仅允许本人读取自己的 Profile。 |
 | `workspace_documents` | 已上传文件的元数据、Storage 路径、状态和解析错误摘要。 |
 | `document_chunks` | 文件切片、1536 维向量、全文检索向量和原文位置元数据。 |
 | `processing_tasks` | 解析和 Embedding 任务的进度、重试次数、输入输出摘要。 |

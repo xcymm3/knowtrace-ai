@@ -20,6 +20,7 @@
   --color-accent-quiet: oklch(67% 0.11 259);
   --color-focus: oklch(54% 0.2 259);
   --color-error: oklch(56% 0.19 28);
+  --color-warning: oklch(67% 0.13 74);
   --color-success: oklch(55% 0.13 151);
   --color-tile-1: oklch(80% 0.08 259);
   --color-tile-2: oklch(79% 0.07 201);
