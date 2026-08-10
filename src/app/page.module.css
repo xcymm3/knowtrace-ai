@@ -90,7 +90,6 @@
 .passwordStrength[data-level="4"] > span { background: var(--color-success); transform: scaleX(1); }
 .passwordStrength p, .passwordMatch, .passwordMismatch { grid-column: 1 / -1; margin: var(--space-3xs) 0 0; color: var(--color-muted); font-family: var(--font-body); font-size: 0.625rem; line-height: 1.5; }
 .passwordStrength strong { color: var(--color-ink-soft); font-weight: 680; }
-.passwordStrength em { margin-inline-start: var(--space-2xs); color: var(--color-muted); font-style: normal; }
 .passwordMatch { color: var(--color-success); }
 .passwordMismatch { color: var(--color-error); }
 .authError, .authNotice { margin: 0; padding: var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); font-family: var(--font-body); font-size: var(--text-xs); line-height: 1.5; }

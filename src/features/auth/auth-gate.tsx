@@ -209,7 +209,7 @@ function AuthForm() {
             {mode === "sign-up" ? (
               <div className={styles.passwordStrength} data-level={strength.level} aria-label={`密码强度：${strength.label}`}>
                 <span /><span /><span /><span />
-                <p>密码强度：<strong>{strength.label}</strong><em>不影响注册</em></p>
+                <p>密码强度：<strong>{strength.label}</strong></p>
               </div>
             ) : null}
           </div>
