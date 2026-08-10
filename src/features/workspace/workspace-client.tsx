@@ -435,7 +435,10 @@ export function WorkspaceClient({ userName, userEmail, onSignOut }: WorkspaceCli
         {activeProject ? <div className={styles.workspaceGrid}>
           <section className={styles.chatPane} aria-labelledby="project-title">
             <header className={styles.workspaceHeader}>
-              <div><p className={styles.eyebrow}>当前知识库 {activeConversation ? `· ${activeConversation.title}` : ""}</p><h1 id="project-title">{activeProject.name}</h1></div>
+              <div className={styles.workspaceTitle}>
+                <Image className={styles.workspaceMark} src="/knowtrace-mark.svg" width={48} height={48} alt="" priority />
+                <div><p className={styles.eyebrow}>当前知识库 {activeConversation ? `· ${activeConversation.title}` : ""}</p><h1 id="project-title">{activeProject.name}</h1></div>
+              </div>
               <div className={styles.workspaceFeedback} aria-live="polite">
                 {error ? <p className={styles.feedbackError} role="alert">{error}</p> : null}
                 {notice ? <p className={styles.feedbackNotice} role="status">{notice}</p> : null}
