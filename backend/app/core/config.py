@@ -39,7 +39,11 @@ class Settings(BaseSettings):
 
     @property
     def supabase_is_configured(self) -> bool:
-        return bool(self.database_url and self.supabase_url and self.supabase_service_role_key)
+        # Supabase's Python client uses the HTTPS REST endpoint; it does not
+        # open a direct PostgreSQL connection. Vercel's Supabase integration
+        # exposes POSTGRES_* variables rather than DATABASE_URL, so requiring
+        # the latter here incorrectly disables authenticated API requests.
+        return bool(self.supabase_url and self.supabase_service_role_key)
 
     @property
     def redis_is_configured(self) -> bool:

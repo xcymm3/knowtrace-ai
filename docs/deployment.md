@@ -24,15 +24,15 @@ docker compose ps
 - `CORS_ORIGINS`：前端公网域名，例如 `https://app.example.com`。
 - `API_PROXY_TARGET`：Next.js 服务到 FastAPI 服务的内部或公网地址。
 - `NEXT_PUBLIC_APP_URL`：前端公网地址。
-- `DATABASE_URL`、`SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`REDIS_URL`、`EMBEDDING_*`、`LLM_*`：仅部署环境变量，不进入代码库。
+- `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`REDIS_URL`、`EMBEDDING_*`、`LLM_*`：仅部署环境变量，不进入代码库。当前后端通过 Supabase REST API 访问业务数据，`DATABASE_URL` 仅在 Docker Compose 配置中保留，不是 Vercel API 的运行时前提。
 
 ## 使用 Vercel 的边界
 
 Vercel 适合承载 Next.js 前端和 `/api/v1/*` 的转发层，但不适合作为持续消费 Redis 队列的 Worker 运行环境。若前端部署在 Vercel：
 
-1. 在容器平台部署 FastAPI 与 ARQ Worker，并准备托管 Redis。
-2. 将 Vercel 的 `API_PROXY_TARGET` 设置为 FastAPI 的 HTTPS 地址。
-3. 在 FastAPI 的 `CORS_ORIGINS` 添加 Vercel 前端域名。
+1. Vercel 的 FastAPI Service 可承载短请求（登录、知识库读写、提问流）；要完成文件解析和向量索引，仍需在容器平台运行 ARQ Worker，并准备托管 Redis。
+2. 在 Vercel 为后端服务配置 `SUPABASE_URL`、`SUPABASE_SERVICE_ROLE_KEY`、`REDIS_URL`、`EMBEDDING_*` 与 `LLM_*`；只部署网页而没有 Redis/Worker 时，异步解析任务不会执行。
+3. 如 FastAPI 部署在 Vercel 之外，将 Vercel 的 `API_PROXY_TARGET` 设置为该服务 HTTPS 地址，并在 FastAPI 的 `CORS_ORIGINS` 添加前端域名。
 4. 不要把任何 `SUPABASE_SERVICE_ROLE_KEY`、Embedding Key 或 LLM Key 配置为 `NEXT_PUBLIC_*`。
 
 现有 `vercel.json` 仅描述前端与 API 路由关系；完整异步处理能力仍取决于外部 Worker 与 Redis。

@@ -41,6 +41,26 @@ def test_readiness_is_degraded_without_supabase_configuration(monkeypatch) -> No
     }
 
 
+def test_readiness_accepts_supabase_rest_credentials_without_database_url(monkeypatch) -> None:
+    monkeypatch.setenv("DATABASE_URL", "")
+    monkeypatch.setenv("SUPABASE_URL", "https://example.supabase.co")
+    monkeypatch.setenv("SUPABASE_SERVICE_ROLE_KEY", "service-role-key")
+    monkeypatch.setenv("REDIS_URL", "")
+    get_settings.cache_clear()
+
+    response = client.get("/api/v1/ready")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "degraded",
+        "components": {
+            "api": "ready",
+            "supabase": "ready",
+            "redis": "not_configured",
+        },
+    }
+
+
 def test_openapi_exposes_health_contract() -> None:
     response = client.get("/api/v1/openapi.json")
 
