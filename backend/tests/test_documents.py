@@ -229,6 +229,31 @@ def test_upload_creates_pending_document_and_parse_task() -> None:
     assert fake_queue.task_ids == [UUID(payload["task_id"])]
 
 
+def test_upload_keeps_chinese_file_name_out_of_storage_path() -> None:
+    workspace_id = uuid4()
+    fake_store = FakeDocumentStore(workspace_id)
+    service = DocumentIngestionService(
+        store=fake_store,
+        queue=FakeTaskQueue(),
+        settings=Settings(document_max_upload_size_bytes=1_000_000),
+    )
+
+    asyncio.run(
+        service.ingest(
+            UploadInput(
+                workspace_id=workspace_id,
+                kind=DocumentKind.GENERAL,
+                file_name="M9内部协议ver5.13(1).xls",
+                mime_type="application/octet-stream",
+                content=b"legacy-office-content",
+            )
+        )
+    )
+
+    assert fake_store.documents[0]["file_name"] == "M9内部协议ver5.13(1).xls"
+    assert fake_store.uploaded_paths[0].endswith("/original/source.xls")
+
+
 def test_upload_rejects_an_unsupported_file_type() -> None:
     workspace_id = uuid4()
     fake_store = FakeDocumentStore(workspace_id)

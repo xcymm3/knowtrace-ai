@@ -3,6 +3,10 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field
 
+from app.features.conversations.schemas import ConversationResponse
+from app.features.documents.schemas import SourceDocumentResponse
+from app.features.tasks.schemas import TaskStatusResponse
+
 
 class WorkspaceStatus(StrEnum):
     DRAFT = "DRAFT"
@@ -28,3 +32,9 @@ class WorkspaceResponse(BaseModel):
     status: WorkspaceStatus
     created_at: str
     updated_at: str
+
+
+class WorkspaceOverviewResponse(BaseModel):
+    documents: list[SourceDocumentResponse]
+    tasks: list[TaskStatusResponse]
+    conversations: list[ConversationResponse]

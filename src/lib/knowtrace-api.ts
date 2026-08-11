@@ -49,6 +49,12 @@ export interface ProcessingTask {
   completed_at: string | null;
 }
 
+export interface WorkspaceOverview {
+  documents: KnowledgeDocument[];
+  tasks: ProcessingTask[];
+  conversations: Conversation[];
+}
+
 export interface Conversation {
   id: string;
   workspace_id: string;
@@ -253,6 +259,8 @@ export const knowTraceApi = {
     }),
   deleteWorkspace: (workspaceId: string) =>
     request<void>(`/api/v1/workspaces/${workspaceId}`, { method: "DELETE" }),
+  getWorkspaceOverview: (workspaceId: string) =>
+    request<WorkspaceOverview>(`/api/v1/workspaces/${workspaceId}/overview`),
   listDocuments: (workspaceId: string) => request<KnowledgeDocument[]>(`/api/v1/workspaces/${workspaceId}/documents`),
   listTasks: (workspaceId: string) => request<ProcessingTask[]>(`/api/v1/tasks/workspaces/${workspaceId}`),
   uploadDocument: (workspaceId: string, formData: FormData) =>

@@ -36,10 +36,10 @@ class DocumentIngestionService:
         self._settings = settings
 
     @staticmethod
-    def _sanitize_file_name(file_name: str) -> str:
+    def _display_file_name(file_name: str) -> str:
         raw_name = PurePath(file_name).name or "uploaded-file"
-        safe_name = re.sub(r"[^\w.-]+", "-", raw_name, flags=re.UNICODE).strip(".-")
-        return safe_name[:180] or "uploaded-file"
+        safe_name = re.sub(r"[\x00-\x1f]+", "-", raw_name).strip()
+        return safe_name[:255] or "uploaded-file"
 
     async def list_documents(self, workspace_id: UUID) -> list[dict[str, object]]:
         exists = await anyio.to_thread.run_sync(self._store.workspace_exists, workspace_id)
@@ -63,15 +63,16 @@ class DocumentIngestionService:
 
         document_id = uuid4()
         task_id = uuid4()
-        safe_file_name = self._sanitize_file_name(upload.file_name)
-        storage_path = f"{upload.workspace_id}/{document_id}/original/{safe_file_name}"
+        display_file_name = self._display_file_name(upload.file_name)
+        extension = PurePath(display_file_name).suffix.lower()
+        storage_path = f"{upload.workspace_id}/{document_id}/original/source{extension}"
         checksum = hashlib.sha256(upload.content).hexdigest()
 
         document_data = {
             "id": str(document_id),
             "workspace_id": str(upload.workspace_id),
             "kind": upload.kind.value,
-            "file_name": safe_file_name,
+            "file_name": display_file_name,
             "mime_type": mime_type,
             "size_bytes": len(upload.content),
             "storage_bucket": self._settings.supabase_storage_bucket,

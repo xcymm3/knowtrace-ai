@@ -1,10 +1,27 @@
+import asyncio
 from uuid import UUID
 
+import anyio
 from fastapi import APIRouter, Depends, status
 
 from app.api.auth import CurrentUser, get_current_user, get_owned_workspace_id
-from app.api.dependencies import get_workspace_service
-from app.features.workspaces.schemas import WorkspaceCreate, WorkspaceResponse, WorkspaceUpdate
+from app.api.dependencies import (
+    get_document_ingestion_service,
+    get_rag_conversation_service,
+    get_task_store,
+    get_workspace_service,
+)
+from app.features.conversations.service import RagConversationService
+from app.features.documents.schemas import SourceDocumentResponse
+from app.features.documents.service import DocumentIngestionService
+from app.features.tasks.schemas import TaskStatusResponse
+from app.features.tasks.store import SupabaseTaskStore
+from app.features.workspaces.schemas import (
+    WorkspaceCreate,
+    WorkspaceOverviewResponse,
+    WorkspaceResponse,
+    WorkspaceUpdate,
+)
 from app.features.workspaces.service import WorkspaceService
 
 router = APIRouter(prefix="/workspaces", tags=["workspaces"])
@@ -33,6 +50,26 @@ async def get_workspace(
     service: WorkspaceService = Depends(get_workspace_service),
 ) -> WorkspaceResponse:
     return await service.get_workspace(workspace_id)
+
+
+@router.get("/{workspace_id}/overview", response_model=WorkspaceOverviewResponse)
+async def get_workspace_overview(
+    workspace_id: UUID = Depends(get_owned_workspace_id),
+    document_service: DocumentIngestionService = Depends(get_document_ingestion_service),
+    task_store: SupabaseTaskStore = Depends(get_task_store),
+    conversation_service: RagConversationService = Depends(get_rag_conversation_service),
+) -> WorkspaceOverviewResponse:
+    """Read every panel of one knowledge workspace in a single browser request."""
+    documents, tasks, conversations = await asyncio.gather(
+        document_service.list_documents(workspace_id),
+        anyio.to_thread.run_sync(task_store.list_workspace_tasks, workspace_id),
+        conversation_service.list_conversations(workspace_id),
+    )
+    return WorkspaceOverviewResponse(
+        documents=[SourceDocumentResponse.model_validate(document) for document in documents],
+        tasks=[TaskStatusResponse.model_validate(task) for task in tasks],
+        conversations=conversations,
+    )
 
 
 @router.patch("/{workspace_id}", response_model=WorkspaceResponse)

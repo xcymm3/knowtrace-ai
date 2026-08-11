@@ -31,7 +31,7 @@ async function mockWorkspaceApi(page: Page) {
   let conversationCreated = false;
   let conversationDeleted = false;
   let createdConversationTitle = "";
-  let firstConversationListRequest = true;
+  let firstOverviewRequest = true;
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -45,8 +45,7 @@ async function mockWorkspaceApi(page: Page) {
       createdWorkspace = true;
       return fulfillJson(route, workspace, 201);
     }
-    if (pathname === `/api/v1/workspaces/${workspaceId}/documents` && method === "GET") {
-      return fulfillJson(route, uploaded ? [{
+    const documents = uploaded ? [{
         id: documentId,
         workspace_id: workspaceId,
         kind: "GENERAL",
@@ -58,8 +57,7 @@ async function mockWorkspaceApi(page: Page) {
         metadata: {},
         created_at: "2026-08-10T00:00:00Z",
         updated_at: "2026-08-10T00:00:00Z",
-      }] : []);
-    }
+      }] : [];
     if (pathname === `/api/v1/workspaces/${workspaceId}/documents` && method === "POST") {
       uploaded = true;
       return fulfillJson(route, {
@@ -72,11 +70,7 @@ async function mockWorkspaceApi(page: Page) {
         task_status: "QUEUED",
       }, 201);
     }
-    if (pathname === `/api/v1/tasks/workspaces/${workspaceId}` && method === "GET") {
-      return fulfillJson(route, []);
-    }
-    if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "GET") {
-      const conversations = [
+    const conversations = [
         ...(conversationCreated && !conversationDeleted ? [{
           id: conversationId,
           workspace_id: workspaceId,
@@ -92,11 +86,12 @@ async function mockWorkspaceApi(page: Page) {
           updated_at: "2026-08-09T00:00:00Z",
         },
       ];
-      if (firstConversationListRequest) {
-        firstConversationListRequest = false;
+    if (pathname === `/api/v1/workspaces/${workspaceId}/overview` && method === "GET") {
+      if (firstOverviewRequest) {
+        firstOverviewRequest = false;
         await new Promise((resolve) => setTimeout(resolve, 500));
       }
-      return fulfillJson(route, conversations);
+      return fulfillJson(route, { documents, tasks: [], conversations });
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "POST") {
       conversationCreated = true;

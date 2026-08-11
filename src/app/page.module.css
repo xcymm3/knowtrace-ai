@@ -43,6 +43,11 @@
 .railAction:active:not(:disabled) { transform: translateY(1px); }
 .railAction:disabled { cursor: not-allowed; opacity: 0.48; }
 .conversationList { margin-block-start: var(--space-xs); max-block-size: 13rem; }
+.conversationLoading { display: grid; gap: var(--space-2xs); margin-block-start: var(--space-xs); padding: var(--space-xs); border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-raised); }
+.conversationLoading span { display: block; block-size: 0.7rem; border-radius: var(--radius-pill); background: linear-gradient(90deg, var(--color-paper-muted), var(--color-accent-soft), var(--color-paper-muted)); background-size: 200% 100%; animation: conversation-loading 1.25s ease-in-out infinite; }
+.conversationLoading span:nth-child(2) { inline-size: 68%; }
+.conversationLoading p { margin: var(--space-3xs) 0 0; color: var(--color-muted); font-family: var(--font-body); font-size: 0.625rem; }
+@keyframes conversation-loading { to { background-position: -200% 0; } }
 .conversationItem { min-inline-size: 0; inline-size: 100%; overflow: hidden; padding: var(--space-2xs) var(--space-xs); border: 0; border-radius: var(--radius-control); background: transparent; color: var(--color-ink-soft); cursor: pointer; font-family: var(--font-body); font-size: var(--text-sm); text-align: start; text-overflow: ellipsis; white-space: nowrap; transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out); }
 .conversationItem:hover { background: var(--color-paper-muted); color: var(--color-ink); transform: translateX(1px); }
 .conversationItem:focus-visible { outline: var(--rule-focus) solid var(--color-focus); outline-offset: calc(var(--rule-focus) * -1); }

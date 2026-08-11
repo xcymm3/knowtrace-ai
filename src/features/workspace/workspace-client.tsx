@@ -78,6 +78,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const [isConversationCreatorOpen, setIsConversationCreatorOpen] = useState(false);
   const [newConversationTitle, setNewConversationTitle] = useState("");
   const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const [isLoadingConversations, setIsLoadingConversations] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [retrievalLimit, setRetrievalLimit] = useState(6);
@@ -108,33 +109,15 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
 
   const loadWorkspace = useCallback(async (workspaceId: string) => {
     const requestVersion = ++workspaceLoadVersionRef.current;
-    const isLatestRequest = () => workspaceLoadVersionRef.current === requestVersion;
-
-    const documentsRequest = knowTraceApi.listDocuments(workspaceId).then((documents) => {
-      if (isLatestRequest()) setWorkspace((current) => ({ ...current, documents }));
-      return documents;
-    });
-    const tasksRequest = knowTraceApi.listTasks(workspaceId).then((tasks) => {
-      if (isLatestRequest()) setWorkspace((current) => ({ ...current, tasks }));
-      return tasks;
-    });
-    const conversationsRequest = knowTraceApi.listConversations(workspaceId).then((nextConversations) => {
-      if (!isLatestRequest()) return nextConversations;
-      setConversations(nextConversations);
-      setConversationId((current) => nextConversations.some((conversation) => conversation.id === current) ? current : (nextConversations[0]?.id ?? null));
-      return nextConversations;
-    });
-    const [documentsResult, tasksResult, conversationsResult] = await Promise.allSettled([
-      documentsRequest,
-      tasksRequest,
-      conversationsRequest,
-    ]);
-    if (!isLatestRequest()) return;
-
-    const failedResult = [documentsResult, tasksResult, conversationsResult].find(
-      (result) => result.status === "rejected",
-    );
-    if (failedResult?.status === "rejected") throw failedResult.reason;
+    try {
+      const overview = await knowTraceApi.getWorkspaceOverview(workspaceId);
+      if (workspaceLoadVersionRef.current !== requestVersion) return;
+      setWorkspace({ documents: overview.documents, tasks: overview.tasks });
+      setConversations(overview.conversations);
+      setConversationId((current) => overview.conversations.some((conversation) => conversation.id === current) ? current : (overview.conversations[0]?.id ?? null));
+    } finally {
+      if (workspaceLoadVersionRef.current === requestVersion) setIsLoadingConversations(false);
+    }
   }, []);
 
   const refreshProjects = useCallback(async () => {
@@ -166,6 +149,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
       setConversationId(null);
       setWorkspace(emptyWorkspace);
       setConversations([]);
+      setIsLoadingConversations(true);
       setIsConversationCreatorOpen(false);
       setNewConversationTitle("");
       try {
@@ -440,10 +424,10 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
             <button className={styles.primaryButton} type="submit" disabled={isCreatingConversation}>{isCreatingConversation ? "创建中…" : "创建"}</button>
             <button className={styles.railAction} type="button" onClick={() => { setIsConversationCreatorOpen(false); setNewConversationTitle(""); }} aria-label="取消新建对话" disabled={isCreatingConversation}>×</button>
           </form> : null}
-          <div className={styles.conversationList} role="list">
+          {isLoadingConversations ? <div className={styles.conversationLoading} role="status"><span /><span /><p>正在加载历史对话…</p></div> : <div className={styles.conversationList} role="list">
             {conversations.map((conversation) => <div className={styles.railItem} key={conversation.id} role="listitem"><button className={`${styles.conversationItem} ${conversation.id === conversationId ? styles.conversationItemActive : ""}`} type="button" onClick={() => setConversationId(conversation.id)} aria-pressed={conversation.id === conversationId} disabled={isStreaming}>{conversation.title}</button><button className={styles.deleteRailItem} type="button" onClick={() => setDeletionTarget({ kind: "conversation", conversation })} aria-label={`删除对话 ${conversation.title}`} title="删除对话" disabled={isStreaming || isDeleting}>×</button></div>)}
             {!conversations.length ? <p className={styles.railEmpty}>点击“＋”输入名称，创建一段对话后即可开始提问。</p> : null}
-          </div>
+          </div>}
         </section> : null}
 
         {activeProject ? <section className={styles.ragSettings} aria-labelledby="rag-settings-title">
