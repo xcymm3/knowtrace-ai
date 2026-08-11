@@ -6,7 +6,7 @@ KnowTrace 的目标不是泛用聊天，而是让每次回答都能回到具体�
 
 ## 已实现的 MVP
 
-1. **个人知识库隔离**：Supabase 邮箱登录后，每个用户仅能访问自己创建的知识库、资料、任务和对话。
+1. **个人知识库隔离**：使用用户名与密码登录后，每个用户仅能访问自己创建的知识库、资料、任务和对话。
 2. **文件入库**：支持 TXT、Markdown、CSV、XLSX、DOCX 与 PDF；原文件存入 Supabase Storage。
 3. **异步处理**：FastAPI 创建任务，Redis + ARQ Worker 负责解析、切片、Embedding、失败重试和进度记录。
 4. **混合检索**：PostgreSQL + pgvector 结合向量相似度与全文关键词检索，只查询当前工作区已索引资料。
@@ -30,7 +30,7 @@ FastAPI ─── Supabase (PostgreSQL + pgvector + Storage)
 
 | 服务 | 职责 |
 | --- | --- |
-| Next.js | 邮箱登录、个人工作区、资料、任务状态、会话与引用展示 |
+| Next.js | 用户名密码登录、个人工作区、资料、任务状态、会话与引用展示 |
 | FastAPI | 验证 Supabase JWT，并执行工作区、文件、检索、会话与 SSE API |
 | Supabase | Auth、PostgreSQL 业务数据、pgvector 检索、私有文件 Storage |
 | Redis + ARQ | 后台解析、向量化、重试与进度队列 |

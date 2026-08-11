@@ -67,7 +67,6 @@
 .accountIdentity { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--space-3xs); min-inline-size: 0; }
 .accountLabel, .accountName { color: var(--color-ink-soft); font-family: var(--font-body); font-size: var(--text-xs); line-height: 1.35; }
 .accountName { overflow: hidden; color: var(--color-ink); font-weight: 680; text-overflow: ellipsis; white-space: nowrap; }
-.accountEmail { grid-column: 1 / -1; min-inline-size: 0; overflow: hidden; color: var(--color-muted); font-family: var(--font-mono); font-size: 0.625rem; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; }
 .signOutButton, .authModeButton { border: 0; background: transparent; color: var(--color-accent); cursor: pointer; font-family: var(--font-body); font-size: var(--text-xs); font-weight: 680; }
 .signOutButton:focus-visible, .authModeButton:focus-visible { outline: var(--rule-focus) solid var(--color-focus); outline-offset: var(--focus-offset); }
 .signOutButton:disabled, .authModeButton:disabled { cursor: not-allowed; opacity: 0.48; }

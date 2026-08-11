@@ -6,6 +6,11 @@ class UsernameSignInRequest(BaseModel):
     password: str = Field(min_length=1, max_length=256)
 
 
+class UsernameSignUpRequest(BaseModel):
+    username: str = Field(min_length=3, max_length=32)
+    password: str = Field(min_length=1, max_length=256)
+
+
 class UsernameSignInResponse(BaseModel):
     access_token: str
     refresh_token: str

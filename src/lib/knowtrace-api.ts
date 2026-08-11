@@ -148,6 +148,24 @@ async function signInWithIdentity(identity: string, password: string): Promise<U
   return response.json() as Promise<UsernameSignInSession>;
 }
 
+async function signUpWithUsername(username: string, password: string): Promise<UsernameSignInSession> {
+  let response: Response;
+  try {
+    response = await fetch("/api/v1/auth/sign-up", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username, password }),
+    });
+  } catch {
+    throw new ApiError("无法连接注册服务，请检查 API 地址与部署状态。");
+  }
+  if (!response.ok) {
+    const payload = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
+    throw new ApiError(payload?.error?.message ?? "账号创建失败，请稍后重试。", payload?.error?.code);
+  }
+  return response.json() as Promise<UsernameSignInSession>;
+}
+
 async function checkUsernameAvailability(username: string): Promise<UsernameAvailability> {
   let response: Response;
   try {
@@ -225,6 +243,7 @@ async function streamRagAnswer(
 
 export const knowTraceApi = {
   signInWithIdentity,
+  signUpWithUsername,
   checkUsernameAvailability,
   listWorkspaces: () => request<WorkspaceProject[]>("/api/v1/workspaces"),
   createWorkspace: (name: string) =>

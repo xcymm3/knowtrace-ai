@@ -41,6 +41,30 @@ def test_username_sign_in_returns_supabase_session() -> None:
     assert response.json()["refresh_token"] == "refresh-token"
 
 
+def test_username_sign_up_returns_an_authenticated_session() -> None:
+    class FakeUsernameSignInService:
+        async def sign_up(self, payload: object) -> UsernameSignInResponse:
+            assert getattr(payload, "username") == "knowtrace"
+            assert getattr(payload, "password") == "weak-password"
+            return UsernameSignInResponse(
+                access_token="access-token",
+                refresh_token="refresh-token",
+                expires_in=3600,
+                token_type="bearer",
+            )
+
+    app.dependency_overrides[get_username_sign_in_service] = FakeUsernameSignInService
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/v1/auth/sign-up",
+        json={"username": "knowtrace", "password": "weak-password"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["access_token"] == "access-token"
+
+
 def test_username_availability_returns_explicit_status() -> None:
     class FakeUsernameSignInService:
         def username_availability(self, username: str) -> UsernameAvailabilityResponse:

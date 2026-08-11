@@ -97,7 +97,6 @@ export function AuthGate() {
 
   return (
     <WorkspaceClient
-      userEmail={session.user.email ?? null}
       userName={displayName(session)}
       onSignOut={() => getSupabaseBrowserClient().auth.signOut()}
     />
@@ -107,7 +106,6 @@ export function AuthGate() {
 function AuthForm() {
   const [mode, setMode] = useState<AuthMode>("sign-in");
   const [identity, setIdentity] = useState("");
-  const [email, setEmail] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [confirmation, setConfirmation] = useState("");
@@ -148,7 +146,6 @@ function AuthForm() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const normalizedEmail = email.trim().toLowerCase();
     const normalizedUsername = username.trim();
     const normalizedIdentity = identity.trim();
     if (!password) {
@@ -156,10 +153,6 @@ function AuthForm() {
       return;
     }
     if (mode === "sign-up") {
-      if (!normalizedEmail) {
-        setError("请输入有效邮箱。");
-        return;
-      }
       if (!usernamePattern.test(normalizedUsername)) {
         setError("用户名需为 3–32 位字母、数字、下划线或连字符。");
         return;
@@ -169,7 +162,7 @@ function AuthForm() {
         return;
       }
     } else if (!normalizedIdentity) {
-      setError("请输入邮箱或用户名。");
+      setError("请输入用户名。");
       return;
     }
 
@@ -191,13 +184,12 @@ function AuthForm() {
           setError("用户名已被使用，请换一个。");
           return;
         }
-        const { data, error: signUpError } = await supabase.auth.signUp({
-          email: normalizedEmail,
-          password,
-          options: { data: { username: normalizedUsername } },
+        const nextSession = await knowTraceApi.signUpWithUsername(normalizedUsername, password);
+        const { error: sessionError } = await supabase.auth.setSession({
+          access_token: nextSession.access_token,
+          refresh_token: nextSession.refresh_token,
         });
-        if (signUpError) throw signUpError;
-        if (!data.session) setNotice("注册成功。请前往邮箱完成验证后，用邮箱或用户名登录。");
+        if (sessionError) throw sessionError;
       }
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : "登录失败，请稍后重试。");
@@ -214,8 +206,8 @@ function AuthForm() {
         <form className={styles.authForm} onSubmit={handleSubmit}>
           {mode === "sign-in" ? (
             <div className={styles.authField}>
-              <label htmlFor="identity">邮箱或用户名</label>
-              <input id="identity" type="text" autoComplete="username" value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="name@example.com 或 knowtrace" required disabled={isSubmitting} />
+              <label htmlFor="identity">用户名</label>
+              <input id="identity" type="text" autoComplete="username" value={identity} onChange={(event) => setIdentity(event.target.value)} placeholder="输入用户名" required disabled={isSubmitting} />
             </div>
           ) : (
             <>
@@ -223,10 +215,6 @@ function AuthForm() {
                 <label htmlFor="username">用户名</label>
                 <input id="username" type="text" autoComplete="username" value={username} onChange={(event) => { setUsername(event.target.value); setUsernameAvailability("idle"); }} onBlur={handleUsernameBlur} placeholder="3–32 位字母、数字、_ 或 -" required disabled={isSubmitting} />
                 {usernameAvailability !== "idle" ? <p className={usernameAvailability === "available" ? styles.usernameAvailable : styles.usernameStatus} data-state={usernameAvailability} aria-live="polite">{usernameAvailability === "checking" ? "正在检查用户名…" : usernameAvailability === "available" ? "用户名可用" : "用户名已被使用"}</p> : null}
-              </div>
-              <div className={styles.authField}>
-                <label htmlFor="email">邮箱</label>
-                <input id="email" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="name@example.com" required disabled={isSubmitting} />
               </div>
             </>
           )}

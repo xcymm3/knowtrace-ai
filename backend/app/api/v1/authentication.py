@@ -5,6 +5,7 @@ from app.features.authentication.schemas import (
     UsernameAvailabilityResponse,
     UsernameSignInRequest,
     UsernameSignInResponse,
+    UsernameSignUpRequest,
 )
 from app.features.authentication.service import UsernameSignInService
 
@@ -26,10 +27,22 @@ async def username_availability(
 @router.post(
     "/sign-in",
     response_model=UsernameSignInResponse,
-    summary="Sign in with email or username",
+    summary="Sign in with a username",
 )
 async def sign_in(
     payload: UsernameSignInRequest,
     service: UsernameSignInService = Depends(get_username_sign_in_service),
 ) -> UsernameSignInResponse:
     return await service.sign_in(payload)
+
+
+@router.post(
+    "/sign-up",
+    response_model=UsernameSignInResponse,
+    summary="Create a username-only account",
+)
+async def sign_up(
+    payload: UsernameSignUpRequest,
+    service: UsernameSignInService = Depends(get_username_sign_in_service),
+) -> UsernameSignInResponse:
+    return await service.sign_up(payload)

@@ -15,7 +15,7 @@ KnowTrace 使用一个 Supabase 项目提供 PostgreSQL、pgvector 和私有文�
    - `SUPABASE_URL` 与 `NEXT_PUBLIC_SUPABASE_URL` 填同一个 Project URL。
    - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` 填 Publishable key；它可公开给浏览器。
    - `SUPABASE_SERVICE_ROLE_KEY` 仅填写后端服务密钥。
-5. 在 **Authentication → Providers → Email** 确认 Email Provider 已开启。开发阶段可关闭 **Confirm email**，或保持开启并完成邮件验证后用邮箱或用户名登录。
+5. 在 **Authentication → Providers → Email** 确认 Email Provider 已开启；KnowTrace 使用 Supabase 的认证能力保存密码与会话，但注册界面仅收集用户名和密码，不发送验证邮件。
 
 ## 必填环境变量
 
@@ -48,7 +48,7 @@ where owner_id is null;
 
 - Database 中存在 `workspaces`、`workspace_documents`、`document_chunks`、`processing_tasks`、`conversations`、`conversation_messages` 和 `message_citations`。
 - `workspaces` 存在 `owner_id` 字段；注册两个测试账号时，双方不会看到对方的知识库。
-- `profiles` 存在每位用户唯一的 `username`；新注册用户可以使用邮箱或用户名登录。
+- `profiles` 存在每位用户唯一的 `username`；新注册用户仅使用用户名登录。
 - `document_chunks.embedding` 类型为 `vector(1536)`。
 - Storage 中存在私有的 `knowtrace-assets` Bucket。
 - 文件路径以 `{workspace_id}/` 开头。
