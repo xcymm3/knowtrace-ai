@@ -173,6 +173,11 @@
 .uploadLabel input { position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); }
 .uploadFormDragging .uploadLabel, .uploadLabel:hover { border-color: var(--color-accent); background: var(--color-accent-soft); }
 .uploadHint { min-block-size: 1.2em; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.uploadProgress { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-3xs); margin-block-start: var(--space-3xs); }
+.uploadProgress span { position: relative; padding-block-start: var(--space-sm); color: var(--color-muted); font-family: var(--font-mono); font-size: 0.6rem; line-height: 1.35; text-align: center; }
+.uploadProgress span::before { position: absolute; inset: 0 auto auto 50%; inline-size: 0.45rem; block-size: 0.45rem; border: var(--rule-hair) solid var(--color-rule); border-radius: 50%; background: var(--color-paper-raised); content: ""; transform: translateX(-50%); }
+.uploadProgress[data-stage="1"] span:nth-child(1), .uploadProgress[data-stage="2"] span:nth-child(-n + 2), .uploadProgress[data-stage="3"] span { color: var(--color-accent); }
+.uploadProgress[data-stage="1"] span:nth-child(1)::before, .uploadProgress[data-stage="2"] span:nth-child(-n + 2)::before, .uploadProgress[data-stage="3"] span::before { border-color: var(--color-accent); background: var(--color-accent); box-shadow: 0 0 0 0.18rem var(--color-accent-soft); }
 .uploadSpinner { display: inline-block; inline-size: 0.75rem; block-size: 0.75rem; margin-inline-end: var(--space-3xs); border: 0.1rem solid var(--color-accent-quiet); border-block-start-color: var(--color-accent); border-radius: 50%; animation: upload-spin 0.75s linear infinite; vertical-align: -0.1rem; }
 @keyframes upload-spin { to { transform: rotate(1turn); } }
 .documentList, .taskPanel ul { display: grid; margin: 0; padding: 0; list-style: none; }

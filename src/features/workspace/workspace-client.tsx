@@ -23,7 +23,8 @@ type DeletionTarget =
 type UploadActivity = {
   documentId?: string;
   fileName: string;
-  stage: "UPLOADING" | "PROCESSING";
+  startedAt: number;
+  stage: "UPLOADING" | "PARSING" | "INDEXING" | "PROCESSING";
 };
 
 const emptyWorkspace: WorkspaceData = { documents: [], tasks: [] };
@@ -44,6 +45,19 @@ function taskDetail(task: ProcessingTask) {
 
 function formatBytes(size: number) {
   return size < 1024 * 1024 ? `${Math.max(1, Math.ceil(size / 1024))} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function uploadStageCopy(stage: UploadActivity["stage"]) {
+  return {
+    UPLOADING: "正在上传文件，请勿关闭页面",
+    PARSING: "正在解析文件内容",
+    INDEXING: "正在建立向量索引",
+    PROCESSING: "已提交，正在读取处理结果",
+  }[stage];
+}
+
+function uploadStageIndex(stage: UploadActivity["stage"]) {
+  return { UPLOADING: 1, PARSING: 2, INDEXING: 3, PROCESSING: 3 }[stage];
 }
 
 function Sources({ sources }: { sources: RagSource[] }) {
@@ -192,6 +206,18 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     return () => window.clearInterval(intervalId);
   }, [activeTasks.length, loadWorkspace, projectId]);
 
+  useEffect(() => {
+    if (!uploadActivity || uploadActivity.documentId) return;
+    const updateStage = () => {
+      const elapsed = Date.now() - uploadActivity.startedAt;
+      const stage = elapsed < 700 ? "UPLOADING" : elapsed < 1800 ? "PARSING" : "INDEXING";
+      setUploadActivity((current) => current && !current.documentId && current.stage !== stage ? { ...current, stage } : current);
+    };
+    updateStage();
+    const intervalId = window.setInterval(updateStage, 350);
+    return () => window.clearInterval(intervalId);
+  }, [uploadActivity]);
+
   async function handleCreateWorkspace(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const formElement = event.currentTarget;
@@ -221,14 +247,14 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     }
     setIsSubmitting(true);
     setError(null);
-    setUploadActivity({ fileName: file.name, stage: "UPLOADING" });
+    setUploadActivity({ fileName: file.name, startedAt: Date.now(), stage: "UPLOADING" });
     setNotice(`正在上传“${file.name}”，请勿关闭页面。`);
     try {
       const form = new FormData();
       form.set("file", file, file.name);
       form.set("kind", "GENERAL");
       const response = await knowTraceApi.uploadDocument(projectId, form);
-      setUploadActivity({ documentId: response.id, fileName: file.name, stage: "PROCESSING" });
+      setUploadActivity({ documentId: response.id, fileName: file.name, startedAt: Date.now(), stage: "PROCESSING" });
       formElement?.reset();
       if (!formElement && uploadInputRef.current) uploadInputRef.current.value = "";
       setSelectedUploadFileName(null);
@@ -493,7 +519,10 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
             <header className={styles.filesHeader}><div><p className={styles.eyebrow}>知识库资料</p><h2 id="files-title">文件</h2></div><span>{workspace.documents.length}</span></header>
             <form className={`${styles.uploadForm} ${isDraggingFile ? styles.uploadFormDragging : ""}`} onSubmit={handleUpload} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; setIsDraggingFile(true); }} onDragLeave={() => setIsDraggingFile(false)} onDrop={handleFileDrop}>
               <label className={styles.uploadLabel}><span>拖拽文件到这里</span><span>或点击选择文件</span><input ref={uploadInputRef} name="file" type="file" required accept=".txt,.md,.markdown,.csv,.xls,.xlsx,.doc,.docx,.pdf" onChange={(event) => setSelectedUploadFileName(event.target.files?.[0]?.name ?? null)} disabled={isSubmitting} /></label>
-              <p className={styles.uploadHint} role={visibleUploadActivity ? "status" : undefined}>{visibleUploadActivity ? <><span className={styles.uploadSpinner} aria-hidden="true" />{visibleUploadActivity.fileName} · {visibleUploadActivity.stage === "UPLOADING" ? "正在上传，请勿关闭页面" : "已上传，正在解析与建立索引"}</> : selectedUploadFileName ?? "支持 TXT、Markdown、CSV、XLS、XLSX、DOC、DOCX、PDF"}</p>
+              <p className={styles.uploadHint} role={visibleUploadActivity ? "status" : undefined}>{visibleUploadActivity ? <><span className={styles.uploadSpinner} aria-hidden="true" />{visibleUploadActivity.fileName} · {uploadStageCopy(visibleUploadActivity.stage)}</> : selectedUploadFileName ?? "支持 TXT、Markdown、CSV、XLS、XLSX、DOC、DOCX、PDF"}</p>
+              {visibleUploadActivity ? <div className={styles.uploadProgress} data-stage={uploadStageIndex(visibleUploadActivity.stage)} aria-label={`处理进度：${uploadStageCopy(visibleUploadActivity.stage)}`}>
+                <span>上传文件</span><span>解析内容</span><span>建立索引</span>
+              </div> : null}
               <button className={styles.primaryButton} type="submit" disabled={isSubmitting}>{isSubmitting ? "正在上传…" : "上传并解析"}</button>
             </form>
             <ul className={styles.documentList}>{workspace.documents.map((document) => <li key={document.id}><span className={styles.fileType}>{document.file_name.split(".").pop()?.toUpperCase() ?? "FILE"}</span><div><strong>{document.file_name}</strong><span>{formatBytes(document.size_bytes)} · {documentStatus(document.status)}</span></div></li>)}{!workspace.documents.length ? <li className={styles.documentEmpty}>尚未上传文件。当前版本支持文本、Markdown、表格、DOC、DOCX 与 PDF 资料。</li> : null}</ul>

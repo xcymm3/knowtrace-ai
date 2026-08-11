@@ -59,6 +59,7 @@ async function mockWorkspaceApi(page: Page) {
         updated_at: "2026-08-10T00:00:00Z",
       }] : [];
     if (pathname === `/api/v1/workspaces/${workspaceId}/documents` && method === "POST") {
+      await new Promise((resolve) => setTimeout(resolve, 900));
       uploaded = true;
       return fulfillJson(route, {
         id: documentId,
@@ -177,6 +178,7 @@ test("用户可创建知识库、上传已索引资料、获得带引用回答�
     buffer: Buffer.from("会议决定继续推进，并由张三负责验证。"),
   });
   await page.getByRole("button", { name: "上传并解析" }).click();
+  await expect(page.getByText("解析内容", { exact: true })).toBeVisible();
   await expect(page.getByText("meeting.txt", { exact: true })).toBeVisible();
   await expect(page.getByText("1 KB · 已索引", { exact: true })).toBeVisible();
 
