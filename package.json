@@ -2,6 +2,7 @@
   "name": "knowtrace-ai",
   "description": "A traceable knowledge workspace for document-grounded AI answers.",
   "version": "0.1.0",
+  "license": "MIT",
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
