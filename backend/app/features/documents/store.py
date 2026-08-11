@@ -57,11 +57,18 @@ class SupabaseDocumentStore:
         return response.data or []
 
     def upload_file(self, path: str, content: bytes, mime_type: str) -> None:
-        self._client.storage.from_(self._storage_bucket).upload(
-            path,
-            content,
-            file_options={"content-type": mime_type, "upsert": "false"},
-        )
+        try:
+            self._client.storage.from_(self._storage_bucket).upload(
+                path,
+                content,
+                file_options={"content-type": mime_type, "upsert": "false"},
+            )
+        except Exception as error:
+            raise ApiError(
+                502,
+                "DOCUMENT_STORAGE_UPLOAD_FAILED",
+                "文件未能保存到资料存储。请确认 Supabase 已执行最新 Storage Migration。",
+            ) from error
 
     def create_source_document(self, data: dict[str, Any]) -> dict[str, Any]:
         response = self._client.table("workspace_documents").insert(data).execute()

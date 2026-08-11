@@ -11,6 +11,7 @@ from xlwt import Workbook as XlsWorkbook
 
 from app.api.dependencies import get_document_ingestion_service
 from app.core.config import Settings
+from app.core.errors import ApiError
 from app.features.documents import parser
 from app.features.documents.parser import limit_extracted_text, parse_document
 from app.features.documents.schemas import DocumentKind
@@ -60,6 +61,15 @@ class FakeTaskQueue:
 
     async def enqueue_parse_document(self, task_id: UUID) -> None:
         self.task_ids.append(task_id)
+
+
+class FailingUploadStore(FakeDocumentStore):
+    def upload_file(self, _path: str, _content: bytes, _mime_type: str) -> None:
+        raise ApiError(
+            502,
+            "DOCUMENT_STORAGE_UPLOAD_FAILED",
+            "文件未能保存到资料存储。请确认 Supabase 已执行最新 Storage Migration。",
+        )
 
 
 class FailingTaskQueue:
@@ -241,6 +251,30 @@ def test_upload_rejects_an_unsupported_file_type() -> None:
     assert response.status_code == 415
     assert response.json()["error"]["code"] == "DOCUMENT_TYPE_UNSUPPORTED"
     assert fake_store.uploaded_paths == []
+
+
+def test_upload_returns_a_clear_error_when_storage_rejects_file() -> None:
+    workspace_id = uuid4()
+    service = DocumentIngestionService(
+        store=FailingUploadStore(workspace_id),
+        queue=FakeTaskQueue(),
+        settings=Settings(document_max_upload_size_bytes=1_000_000),
+    )
+
+    with pytest.raises(ApiError, match="Supabase 已执行最新 Storage Migration") as error:
+        asyncio.run(
+            service.ingest(
+                UploadInput(
+                    workspace_id=workspace_id,
+                    kind=DocumentKind.GENERAL,
+                    file_name="legacy.xls",
+                    mime_type="application/vnd.ms-excel",
+                    content=b"legacy-office-content",
+                )
+            )
+        )
+
+    assert error.value.code == "DOCUMENT_STORAGE_UPLOAD_FAILED"
 
 
 def test_upload_keeps_unicode_file_name_and_cleans_up_on_persistence_failure() -> None:
