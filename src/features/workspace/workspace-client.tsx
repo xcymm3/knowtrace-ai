@@ -75,6 +75,9 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const [workspace, setWorkspace] = useState<WorkspaceData>(emptyWorkspace);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
+  const [isConversationCreatorOpen, setIsConversationCreatorOpen] = useState(false);
+  const [newConversationTitle, setNewConversationTitle] = useState("");
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [question, setQuestion] = useState("");
   const [retrievalLimit, setRetrievalLimit] = useState(6);
@@ -90,6 +93,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const [deletionTarget, setDeletionTarget] = useState<DeletionTarget | null>(null);
   const streamAbortRef = useRef<AbortController | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const conversationTitleInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeProject = projects.find((project) => project.id === projectId) ?? null;
   const activeConversation = conversations.find((conversation) => conversation.id === conversationId) ?? null;
@@ -102,14 +106,25 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   }, [uploadActivity, workspace.documents]);
 
   const loadWorkspace = useCallback(async (workspaceId: string) => {
-    const [documents, tasks, nextConversations] = await Promise.all([
+    const [documentsResult, tasksResult, conversationsResult] = await Promise.allSettled([
       knowTraceApi.listDocuments(workspaceId),
       knowTraceApi.listTasks(workspaceId),
       knowTraceApi.listConversations(workspaceId),
     ]);
-    setWorkspace({ documents, tasks });
-    setConversations(nextConversations);
-    setConversationId((current) => nextConversations.some((conversation) => conversation.id === current) ? current : (nextConversations[0]?.id ?? null));
+    setWorkspace({
+      documents: documentsResult.status === "fulfilled" ? documentsResult.value : [],
+      tasks: tasksResult.status === "fulfilled" ? tasksResult.value : [],
+    });
+    if (conversationsResult.status === "fulfilled") {
+      const nextConversations = conversationsResult.value;
+      setConversations(nextConversations);
+      setConversationId((current) => nextConversations.some((conversation) => conversation.id === current) ? current : (nextConversations[0]?.id ?? null));
+    }
+
+    const failedResult = [documentsResult, tasksResult, conversationsResult].find(
+      (result) => result.status === "rejected",
+    );
+    if (failedResult?.status === "rejected") throw failedResult.reason;
   }, []);
 
   const refreshProjects = useCallback(async () => {
@@ -139,6 +154,8 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
       setError(null);
       setMessages([]);
       setConversationId(null);
+      setIsConversationCreatorOpen(false);
+      setNewConversationTitle("");
       try {
         await loadWorkspace(projectId);
       } catch (caughtError) {
@@ -166,6 +183,10 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   }, [conversationId, isStreaming, projectId]);
 
   useEffect(() => () => streamAbortRef.current?.abort(), []);
+
+  useEffect(() => {
+    if (isConversationCreatorOpen) conversationTitleInputRef.current?.focus();
+  }, [isConversationCreatorOpen]);
 
   useEffect(() => {
     if (!projectId || activeTasks.length === 0) return;
@@ -283,16 +304,27 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     }
   }
 
-  async function handleCreateConversation() {
-    if (!projectId || isStreaming) return;
+  async function handleCreateConversation(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!projectId || isStreaming || isCreatingConversation) return;
+    const title = newConversationTitle.trim();
+    if (!title) {
+      setError("请输入对话名称。");
+      return;
+    }
+    setIsCreatingConversation(true);
     setError(null);
     try {
-      const conversation = await knowTraceApi.createConversation(projectId, "新对话");
+      const conversation = await knowTraceApi.createConversation(projectId, title);
       setConversations((current) => [conversation, ...current]);
       setConversationId(conversation.id);
       setMessages([]);
+      setNewConversationTitle("");
+      setIsConversationCreatorOpen(false);
     } catch (caughtError) {
       setError(readableError(caughtError));
+    } finally {
+      setIsCreatingConversation(false);
     }
   }
 
@@ -387,10 +419,16 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
         </section>
 
         {activeProject ? <section className={styles.conversationNavigation} aria-labelledby="conversations-title">
-          <div className={styles.railHeading}><h2 id="conversations-title">对话</h2><button className={styles.railAction} type="button" onClick={handleCreateConversation} disabled={isStreaming}>新建</button></div>
+          <div className={styles.railHeading}><h2 id="conversations-title">对话</h2><button className={styles.railAction} type="button" onClick={() => setIsConversationCreatorOpen(true)} aria-label="新建对话" title="新建对话" disabled={isStreaming || isCreatingConversation}>＋</button></div>
+          {isConversationCreatorOpen ? <form className={styles.conversationCreateForm} onSubmit={handleCreateConversation}>
+            <label className={styles.srOnly} htmlFor="conversation-title">对话名称</label>
+            <input ref={conversationTitleInputRef} id="conversation-title" value={newConversationTitle} onChange={(event) => setNewConversationTitle(event.target.value)} placeholder="输入对话名称" maxLength={160} required disabled={isCreatingConversation} />
+            <button className={styles.primaryButton} type="submit" disabled={isCreatingConversation}>{isCreatingConversation ? "创建中…" : "创建"}</button>
+            <button className={styles.railAction} type="button" onClick={() => { setIsConversationCreatorOpen(false); setNewConversationTitle(""); }} aria-label="取消新建对话" disabled={isCreatingConversation}>×</button>
+          </form> : null}
           <div className={styles.conversationList} role="list">
             {conversations.map((conversation) => <div className={styles.railItem} key={conversation.id} role="listitem"><button className={`${styles.conversationItem} ${conversation.id === conversationId ? styles.conversationItemActive : ""}`} type="button" onClick={() => setConversationId(conversation.id)} aria-pressed={conversation.id === conversationId} disabled={isStreaming}>{conversation.title}</button><button className={styles.deleteRailItem} type="button" onClick={() => setDeletionTarget({ kind: "conversation", conversation })} aria-label={`删除对话 ${conversation.title}`} title="删除对话" disabled={isStreaming || isDeleting}>×</button></div>)}
-            {!conversations.length ? <p className={styles.railEmpty}>点击“新建”创建一段对话后即可开始提问。</p> : null}
+            {!conversations.length ? <p className={styles.railEmpty}>点击“＋”输入名称，创建一段对话后即可开始提问。</p> : null}
           </div>
         </section> : null}
 

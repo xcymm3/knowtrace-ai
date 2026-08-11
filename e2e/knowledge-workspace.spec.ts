@@ -3,6 +3,7 @@ import { expect, test, type Page, type Route } from "@playwright/test";
 const workspaceId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
 const conversationId = "33333333-3333-4333-8333-333333333333";
+const historicalConversationId = "44444444-4444-4444-8444-444444444444";
 
 const workspace = {
   id: workspaceId,
@@ -29,6 +30,7 @@ async function mockWorkspaceApi(page: Page) {
   let answered = false;
   let conversationCreated = false;
   let conversationDeleted = false;
+  let createdConversationTitle = "";
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -73,23 +75,36 @@ async function mockWorkspaceApi(page: Page) {
       return fulfillJson(route, []);
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "GET") {
-      return fulfillJson(route, conversationCreated && !conversationDeleted ? [{
-        id: conversationId,
-        workspace_id: workspaceId,
-        title: "新对话",
-        created_at: "2026-08-10T00:00:00Z",
-        updated_at: "2026-08-10T00:00:00Z",
-      }] : []);
+      return fulfillJson(route, [
+        ...(conversationCreated && !conversationDeleted ? [{
+          id: conversationId,
+          workspace_id: workspaceId,
+          title: createdConversationTitle,
+          created_at: "2026-08-10T00:00:00Z",
+          updated_at: "2026-08-10T00:00:00Z",
+        }] : []),
+        {
+          id: historicalConversationId,
+          workspace_id: workspaceId,
+          title: "历史对话",
+          created_at: "2026-08-09T00:00:00Z",
+          updated_at: "2026-08-09T00:00:00Z",
+        },
+      ]);
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "POST") {
       conversationCreated = true;
+      createdConversationTitle = (request.postDataJSON() as { title: string }).title;
       return fulfillJson(route, {
         id: conversationId,
         workspace_id: workspaceId,
-        title: "新对话",
+        title: createdConversationTitle,
         created_at: "2026-08-10T00:00:00Z",
         updated_at: "2026-08-10T00:00:00Z",
       }, 201);
+    }
+    if (pathname === `/api/v1/workspaces/${workspaceId}/conversations/${historicalConversationId}/messages` && method === "GET") {
+      return fulfillJson(route, []);
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages` && method === "GET") {
       return fulfillJson(route, answered ? [
@@ -154,6 +169,7 @@ test("用户可创建知识库、上传已索引资料、获得带引用回答�
   await page.getByPlaceholder("新建知识库").fill("测试知识库");
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await expect(page.getByRole("heading", { name: "测试知识库" })).toBeVisible();
+  await expect(page.getByText("历史对话", { exact: true })).toBeVisible();
 
   await page.locator('input[type="file"]').setInputFiles({
     name: "meeting.txt",
@@ -164,18 +180,20 @@ test("用户可创建知识库、上传已索引资料、获得带引用回答�
   await expect(page.getByText("meeting.txt", { exact: true })).toBeVisible();
   await expect(page.getByText("1 KB · 已索引", { exact: true })).toBeVisible();
 
-  await expect(page.locator("#message")).toBeDisabled();
-  await page.getByRole("button", { name: "新建", exact: true }).last().click();
-  await expect(page.getByText("新对话", { exact: true })).toBeVisible();
+  await expect(page.locator("#message")).toBeEnabled();
+  await page.getByRole("button", { name: "新建对话" }).click();
+  await page.getByPlaceholder("输入对话名称").fill("会议讨论");
+  await page.getByRole("button", { name: "创建", exact: true }).click();
+  await expect(page.getByText("会议讨论", { exact: true })).toBeVisible();
   await page.locator("#message").fill("会议结论是什么？");
   await page.getByRole("button", { name: "发送问题" }).click();
   await expect(page.getByText("会议决定继续推进，由张三负责验证。")).toBeVisible();
   await expect(page.getByText("本次引用 1 个资料片段")).toBeVisible();
 
-  await page.getByRole("button", { name: "删除对话 新对话" }).click();
+  await page.getByRole("button", { name: "删除对话 会议讨论" }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await page.getByRole("button", { name: "确认删除" }).click();
-  await expect(page.getByText("对话“新对话”已删除。")).toBeVisible();
+  await expect(page.getByText("对话“会议讨论”已删除。")).toBeVisible();
 });
 
 test("注册页展示用户名、确认密码与非阻断式密码强度反馈", async ({ page }) => {
