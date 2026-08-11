@@ -52,9 +52,12 @@ class SupabaseTaskStore:
         self._client.table("workspace_documents").update(data).eq("id", str(document_id)).execute()
 
     def create_embedding_task(self, data: dict[str, Any]) -> dict[str, Any]:
+        return self.create_task(data)
+
+    def create_task(self, data: dict[str, Any]) -> dict[str, Any]:
         response = self._client.table("processing_tasks").insert(data).execute()
         if not response.data:
-            raise ApiError(502, "TASK_CREATE_FAILED", "Embedding 任务创建失败。")
+            raise ApiError(502, "TASK_CREATE_FAILED", "后台任务创建失败。")
         return response.data[0]
 
     def download_file(self, path: str) -> bytes:
@@ -66,3 +69,21 @@ class SupabaseTaskStore:
             content,
             file_options={"content-type": "text/plain; charset=utf-8", "upsert": "true"},
         )
+
+    def delete_storage_files(self, bucket: str, paths: list[str]) -> None:
+        unique_paths = list(dict.fromkeys(path for path in paths if path))
+        if unique_paths:
+            self._client.storage.from_(bucket).remove(unique_paths)
+
+    def delete_document_records(self, document_id: UUID) -> None:
+        """Remove citations before deleting chunks, then let FK cascades remove tasks."""
+        chunks = (
+            self._client.table("document_chunks")
+            .select("id")
+            .eq("document_id", str(document_id))
+            .execute()
+        )
+        chunk_ids = [str(chunk["id"]) for chunk in (chunks.data or [])]
+        if chunk_ids:
+            self._client.table("message_citations").delete().in_("chunk_id", chunk_ids).execute()
+        self._client.table("workspace_documents").delete().eq("id", str(document_id)).execute()

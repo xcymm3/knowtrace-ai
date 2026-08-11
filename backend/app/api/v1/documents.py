@@ -3,13 +3,14 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 
 from app.api.auth import get_owned_workspace_id
-from app.api.dependencies import get_document_ingestion_service
+from app.api.dependencies import get_document_ingestion_service, get_task_control_service
 from app.features.documents.schemas import (
     DocumentKind,
     DocumentUploadResponse,
     SourceDocumentResponse,
 )
 from app.features.documents.service import DocumentIngestionService, UploadInput
+from app.features.tasks.service import TaskControlService
 
 router = APIRouter(prefix="/workspaces/{workspace_id}/documents", tags=["documents"])
 
@@ -51,3 +52,16 @@ async def upload_document(
             content=content,
         )
     )
+
+
+@router.delete(
+    "/{document_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a document and its index",
+)
+async def delete_document(
+    document_id: UUID,
+    workspace_id: UUID = Depends(get_owned_workspace_id),
+    service: TaskControlService = Depends(get_task_control_service),
+) -> None:
+    await service.delete_document(workspace_id, document_id)

@@ -19,7 +19,8 @@ import styles from "@/app/page.module.css";
 type WorkspaceData = { documents: KnowledgeDocument[]; tasks: ProcessingTask[] };
 type DeletionTarget =
   | { kind: "workspace"; workspace: WorkspaceProject }
-  | { kind: "conversation"; conversation: Conversation };
+  | { kind: "conversation"; conversation: Conversation }
+  | { kind: "document"; document: KnowledgeDocument };
 type UploadActivity = {
   documentId?: string;
   fileName: string;
@@ -39,6 +40,7 @@ function documentStatus(status: string) {
 
 function taskDetail(task: ProcessingTask) {
   if (task.status === "FAILED") return task.error_message ?? "任务执行失败";
+  if (task.status === "CANCELLED") return "已取消，可重新尝试";
   if (task.status === "SUCCEEDED") return task.task_type === "GENERATE_EMBEDDINGS" ? "向量索引已完成" : "文本解析已完成";
   return `${task.progress}% · ${task.task_type === "GENERATE_EMBEDDINGS" ? "正在建立向量索引" : "正在解析文件"}`;
 }
@@ -99,6 +101,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [taskActionId, setTaskActionId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -114,6 +117,10 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const activeProject = projects.find((project) => project.id === projectId) ?? null;
   const activeConversation = conversations.find((conversation) => conversation.id === conversationId) ?? null;
   const activeTasks = useMemo(() => workspace.tasks.filter((task) => ["QUEUED", "RUNNING"].includes(task.status)), [workspace.tasks]);
+  const visibleTasks = useMemo(() => [
+    ...workspace.tasks.filter((task) => task.status !== "SUCCEEDED"),
+    ...workspace.tasks.filter((task) => task.status === "SUCCEEDED"),
+  ].slice(0, 5), [workspace.tasks]);
   const indexedDocuments = useMemo(() => workspace.documents.filter((document) => document.status === "READY"), [workspace.documents]);
   const visibleUploadActivity = useMemo(() => {
     if (!uploadActivity?.documentId) return uploadActivity;
@@ -307,7 +314,12 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
           setMessages([]);
         }
         setNotice(`知识库“${workspaceProject.name}”已删除。`);
-      } else if (projectId) {
+      } else if (deletionTarget.kind === "document" && projectId) {
+        const { document } = deletionTarget;
+        await knowTraceApi.deleteDocument(projectId, document.id);
+        await loadWorkspace(projectId);
+        setNotice(`文件“${document.file_name}”及其索引已删除。`);
+      } else if (deletionTarget.kind === "conversation" && projectId) {
         const { conversation } = deletionTarget;
         await knowTraceApi.deleteConversation(projectId, conversation.id);
         const remaining = conversations.filter((item) => item.id !== conversation.id);
@@ -323,6 +335,21 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
       setError(readableError(caughtError));
     } finally {
       setIsDeleting(false);
+    }
+  }
+
+  async function handleTaskAction(task: ProcessingTask, action: "retry" | "cancel") {
+    if (!projectId || taskActionId) return;
+    setTaskActionId(task.id);
+    setError(null);
+    try {
+      await (action === "retry" ? knowTraceApi.retryTask(task.id) : knowTraceApi.cancelTask(task.id));
+      await loadWorkspace(projectId);
+      setNotice(action === "retry" ? "任务已重新提交。" : "任务已取消，可随时重新尝试。");
+    } catch (caughtError) {
+      setError(readableError(caughtError));
+    } finally {
+      setTaskActionId(null);
     }
   }
 
@@ -525,16 +552,16 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
               </div> : null}
               <button className={styles.primaryButton} type="submit" disabled={isSubmitting}>{isSubmitting ? "正在上传…" : "上传并解析"}</button>
             </form>
-            <ul className={styles.documentList}>{workspace.documents.map((document) => <li key={document.id}><span className={styles.fileType}>{document.file_name.split(".").pop()?.toUpperCase() ?? "FILE"}</span><div><strong>{document.file_name}</strong><span>{formatBytes(document.size_bytes)} · {documentStatus(document.status)}</span></div></li>)}{!workspace.documents.length ? <li className={styles.documentEmpty}>尚未上传文件。当前版本支持文本、Markdown、表格、DOC、DOCX 与 PDF 资料。</li> : null}</ul>
-            <section className={styles.taskPanel} aria-labelledby="task-title"><div className={styles.taskHeading}><h3 id="task-title">处理状态</h3><span>{activeTasks.length ? "运行中" : "空闲"}</span></div><ul>{workspace.tasks.slice(0, 3).map((task) => <li key={task.id}><span className={`${styles.taskMarker} ${task.status === "SUCCEEDED" ? styles.taskDone : ""}`} /><div><strong>{task.task_type === "GENERATE_EMBEDDINGS" ? "向量索引" : "文件解析"}</strong><span>{taskDetail(task)}</span></div></li>)}{!workspace.tasks.length ? <li className={styles.taskEmpty}>上传文件后，解析和索引任务会显示在这里。</li> : null}</ul></section>
+            <ul className={styles.documentList}>{workspace.documents.map((document) => <li key={document.id}><span className={styles.fileType}>{document.file_name.split(".").pop()?.toUpperCase() ?? "FILE"}</span><div><strong>{document.file_name}</strong><span>{formatBytes(document.size_bytes)} · {documentStatus(document.status)}</span></div><button className={styles.deleteDocumentButton} type="button" onClick={() => setDeletionTarget({ kind: "document", document })} aria-label={`删除文件 ${document.file_name}`} title="删除文件并清理索引" disabled={isDeleting || isSubmitting}>×</button></li>)}{!workspace.documents.length ? <li className={styles.documentEmpty}>尚未上传文件。当前版本支持文本、Markdown、表格、DOC、DOCX 与 PDF 资料。</li> : null}</ul>
+            <section className={styles.taskPanel} aria-labelledby="task-title"><div className={styles.taskHeading}><h3 id="task-title">处理状态</h3><span>{activeTasks.length ? "运行中" : "空闲"}</span></div><ul>{visibleTasks.map((task) => <li key={task.id}><span className={`${styles.taskMarker} ${task.status === "SUCCEEDED" ? styles.taskDone : task.status === "FAILED" ? styles.taskFailed : task.status === "CANCELLED" ? styles.taskCancelled : ""}`} /><div><strong>{task.task_type === "GENERATE_EMBEDDINGS" ? "向量索引" : "文件解析"}</strong><span>{taskDetail(task)}</span>{task.status === "FAILED" && task.error_message ? <details className={styles.taskError}><summary>查看失败原因</summary><p>{task.error_message}</p></details> : null}{task.status === "FAILED" || task.status === "CANCELLED" ? <button className={styles.taskAction} type="button" onClick={() => void handleTaskAction(task, "retry")} disabled={taskActionId !== null}>{taskActionId === task.id ? "处理中…" : "重新尝试"}</button> : null}{["QUEUED", "RUNNING"].includes(task.status) ? <button className={styles.taskAction} type="button" onClick={() => void handleTaskAction(task, "cancel")} disabled={taskActionId !== null}>{taskActionId === task.id ? "处理中…" : "取消"}</button> : null}</div></li>)}{!workspace.tasks.length ? <li className={styles.taskEmpty}>上传文件后，解析和索引任务会显示在这里。</li> : null}</ul></section>
           </aside>
         </div> : null}
       </main>
       {deletionTarget ? <div className={styles.dialogBackdrop} role="presentation">
         <section className={styles.confirmDialog} role="alertdialog" aria-modal="true" aria-labelledby="delete-dialog-title" aria-describedby="delete-dialog-description">
           <p className={styles.eyebrow}>确认操作</p>
-          <h2 id="delete-dialog-title">删除{deletionTarget.kind === "workspace" ? "知识库" : "对话"}？</h2>
-          <p id="delete-dialog-description">{deletionTarget.kind === "workspace" ? <>“{deletionTarget.workspace.name}”中的文件、索引和全部对话将一并删除，且无法恢复。</> : <>“{deletionTarget.conversation.title}”中的全部消息将被删除，且无法恢复。</>}</p>
+          <h2 id="delete-dialog-title">删除{deletionTarget.kind === "workspace" ? "知识库" : deletionTarget.kind === "document" ? "文件" : "对话"}？</h2>
+          <p id="delete-dialog-description">{deletionTarget.kind === "workspace" ? <>“{deletionTarget.workspace.name}”中的文件、索引和全部对话将一并删除，且无法恢复。</> : deletionTarget.kind === "document" ? <>“{deletionTarget.document.file_name}”的原文件、提取文本、向量索引和关联任务将一并删除，且无法恢复。</> : <>“{deletionTarget.conversation.title}”中的全部消息将被删除，且无法恢复。</>}</p>
           <div className={styles.dialogActions}>
             <button className={styles.secondaryButton} type="button" onClick={() => setDeletionTarget(null)} disabled={isDeleting}>取消</button>
             <button className={styles.dangerButton} type="button" onClick={() => void confirmDeletion()} disabled={isDeleting}>{isDeleting ? "删除中…" : "确认删除"}</button>

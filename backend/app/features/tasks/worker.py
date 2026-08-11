@@ -30,6 +30,11 @@ async def _update_task(store: SupabaseTaskStore, task_id: UUID, data: dict[str, 
     await anyio.to_thread.run_sync(store.update_task, task_id, data)
 
 
+async def _is_task_cancelled(store: SupabaseTaskStore, task_id: UUID) -> bool:
+    task = await anyio.to_thread.run_sync(store.get_task, task_id)
+    return task["status"] == "CANCELLED"
+
+
 async def process_parse_document(
     store: SupabaseTaskStore,
     task_id: UUID,
@@ -70,6 +75,8 @@ async def process_parse_document(
             parse_document(content, document["mime_type"], document["file_name"]),
             max_extracted_characters,
         )
+        if await _is_task_cancelled(store, task_id):
+            return
         await _update_task(store, task_id, {"progress": 70})
 
         metadata = dict(document.get("metadata") or {})
@@ -87,7 +94,7 @@ async def process_parse_document(
             )
             metadata["extractedTextPath"] = derived_path
 
-            if enqueue_embedding:
+            if enqueue_embedding and not await _is_task_cancelled(store, task_id):
                 index_task_id = uuid4()
                 await anyio.to_thread.run_sync(
                     store.create_embedding_task,
@@ -103,6 +110,8 @@ async def process_parse_document(
                 metadata["index"] = {"status": "QUEUED", "taskId": str(index_task_id)}
                 document_status = "PROCESSING"
 
+        if await _is_task_cancelled(store, task_id):
+            return
         await anyio.to_thread.run_sync(
             store.update_document,
             document_id,
@@ -255,6 +264,9 @@ async def process_generate_embeddings(
             progress = 30 + int(50 * min(start + len(batch), len(chunks)) / len(chunks))
             await _update_task(task_store, task_id, {"progress": progress})
 
+        if await _is_task_cancelled(task_store, task_id):
+            return
+
         records = [
             {
                 "workspace_id": document["workspace_id"],
@@ -267,6 +279,8 @@ async def process_generate_embeddings(
             }
             for chunk, vector in zip(chunks, vectors, strict=True)
         ]
+        if await _is_task_cancelled(task_store, task_id):
+            return
         await anyio.to_thread.run_sync(knowledge_store.replace_chunks, document_id, records)
         metadata["index"] = {
             "status": "READY",

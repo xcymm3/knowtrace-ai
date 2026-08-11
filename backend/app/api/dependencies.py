@@ -12,6 +12,7 @@ from app.features.knowledge.store import SupabaseKnowledgeStore
 from app.features.llm.service import LangChainAnswerService, build_langchain_answer_service
 from app.features.tasks.inline import InlineTaskQueue
 from app.features.tasks.queue import ArqTaskQueue
+from app.features.tasks.service import TaskControlService
 from app.features.tasks.store import SupabaseTaskStore
 from app.features.workspaces.service import WorkspaceService
 from app.features.workspaces.store import SupabaseWorkspaceStore
@@ -51,6 +52,17 @@ def get_task_store() -> SupabaseTaskStore:
         create_supabase_client(settings),
         settings.supabase_storage_bucket,
     )
+
+
+@lru_cache
+def get_task_control_service() -> TaskControlService:
+    settings = get_settings()
+    queue = (
+        InlineTaskQueue(settings)
+        if settings.uses_inline_task_execution
+        else ArqTaskQueue(settings.redis_url)
+    )
+    return TaskControlService(store=get_task_store(), queue=queue)
 
 
 @lru_cache

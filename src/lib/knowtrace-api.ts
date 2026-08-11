@@ -265,6 +265,8 @@ export const knowTraceApi = {
   listTasks: (workspaceId: string) => request<ProcessingTask[]>(`/api/v1/tasks/workspaces/${workspaceId}`),
   uploadDocument: (workspaceId: string, formData: FormData) =>
     request<DocumentUploadResponse>(`/api/v1/workspaces/${workspaceId}/documents`, { method: "POST", body: formData }),
+  deleteDocument: (workspaceId: string, documentId: string) =>
+    request<void>(`/api/v1/workspaces/${workspaceId}/documents/${documentId}`, { method: "DELETE" }),
   listConversations: (workspaceId: string) => request<Conversation[]>(`/api/v1/workspaces/${workspaceId}/conversations`),
   createConversation: (workspaceId: string, title: string) =>
     request<Conversation>(`/api/v1/workspaces/${workspaceId}/conversations`, {
@@ -273,6 +275,8 @@ export const knowTraceApi = {
     }),
   deleteConversation: (workspaceId: string, conversationId: string) =>
     request<void>(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}`, { method: "DELETE" }),
+  retryTask: (taskId: string) => request<ProcessingTask>(`/api/v1/tasks/${taskId}/retry`, { method: "POST" }),
+  cancelTask: (taskId: string) => request<ProcessingTask>(`/api/v1/tasks/${taskId}/cancel`, { method: "POST" }),
   listMessages: (workspaceId: string, conversationId: string) =>
     request<ConversationMessage[]>(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`),
   streamRagAnswer,

@@ -181,7 +181,7 @@
 .uploadSpinner { display: inline-block; inline-size: 0.75rem; block-size: 0.75rem; margin-inline-end: var(--space-3xs); border: 0.1rem solid var(--color-accent-quiet); border-block-start-color: var(--color-accent); border-radius: 50%; animation: upload-spin 0.75s linear infinite; vertical-align: -0.1rem; }
 @keyframes upload-spin { to { transform: rotate(1turn); } }
 .documentList, .taskPanel ul { display: grid; margin: 0; padding: 0; list-style: none; }
-.documentList li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-xs); padding-block: var(--space-sm); border-block-end: var(--rule-hair) solid var(--color-rule); }
+.documentList li { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--space-xs); padding-block: var(--space-sm); border-block-end: var(--rule-hair) solid var(--color-rule); }
 .fileType { display: grid; inline-size: 2.125rem; block-size: 2.125rem; place-items: center; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-sm); color: var(--color-accent); font-family: var(--font-mono); font-size: 0.625rem; font-weight: 700; }
 .documentList strong, .documentList span, .taskPanel strong, .taskPanel li span { display: block; min-inline-size: 0; overflow-wrap: anywhere; }
 .documentList strong, .taskPanel strong { color: var(--color-ink); font-family: var(--font-body); font-size: var(--text-sm); font-weight: 680; }
@@ -192,6 +192,19 @@
 .taskPanel li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-2xs); padding-block: var(--space-xs); }
 .taskMarker { align-self: center; inline-size: var(--space-2xs); block-size: var(--space-2xs); border-radius: 50%; background: var(--color-accent-quiet); }
 .taskDone { background: var(--color-success); }
+.taskFailed { background: var(--color-error); }
+.taskCancelled { background: var(--color-muted); }
+.deleteDocumentButton { align-self: center; display: grid; inline-size: 1.55rem; block-size: 1.55rem; place-items: center; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--color-muted); cursor: pointer; font-family: var(--font-body); font-size: var(--text-md); line-height: 1; opacity: 0.58; }
+.documentList li:hover .deleteDocumentButton, .deleteDocumentButton:focus-visible { opacity: 1; }
+.deleteDocumentButton:hover:not(:disabled) { background: color-mix(in oklch, var(--color-error) 8%, var(--color-paper-raised)); color: var(--color-error); }
+.deleteDocumentButton:focus-visible, .taskAction:focus-visible { outline: var(--rule-focus) solid var(--color-focus); outline-offset: var(--focus-offset); }
+.deleteDocumentButton:disabled { cursor: not-allowed; opacity: 0.36; }
+.taskAction { margin-block-start: var(--space-2xs); padding: 0; border: 0; background: transparent; color: var(--color-accent); cursor: pointer; font-family: var(--font-body); font-size: 0.6875rem; font-weight: 680; }
+.taskAction:hover:not(:disabled) { text-decoration: underline; }
+.taskAction:disabled { cursor: not-allowed; color: var(--color-muted); }
+.taskError { margin-block-start: var(--space-2xs); color: var(--color-error); font-family: var(--font-body); font-size: 0.6875rem; line-height: 1.45; }
+.taskError summary { cursor: pointer; }
+.taskError p { margin: var(--space-3xs) 0 0; white-space: pre-wrap; }
 
 @media (min-width: 46rem) { .page { display: grid; grid-template-columns: minmax(15rem, 20rem) minmax(0, 1fr); block-size: 100dvh; min-block-size: 0; overflow: hidden; } .sidebar { block-size: 100dvh; min-block-size: 0; overflow-y: auto; } .main { block-size: 100dvh; min-block-size: 0; overflow: hidden; } .workspaceGrid { grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem); block-size: 100%; min-block-size: 0; } .filesPane { overflow-y: auto; border-block-start: 0; border-inline-start: var(--rule-hair) solid var(--color-rule); } }
 @media (max-width: 45.99rem) { .sidebar { min-block-size: auto; border-inline-end: 0; border-block-end: var(--rule-hair) solid var(--color-rule); } .brandSubline { display: none; } .projectList, .conversationList { grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); max-block-size: none; } .main { padding: 0; } .workspaceGrid { border-inline: 0; } .chatPane { min-block-size: 38rem; } .workspaceHeader { grid-template-columns: 1fr; } .messageTimeline { min-block-size: 22rem; } .deleteRailItem { opacity: 1; } }

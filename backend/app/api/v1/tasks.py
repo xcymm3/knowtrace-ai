@@ -8,8 +8,9 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 
 from app.api.auth import CurrentUser, get_current_user, get_owned_workspace_id
-from app.api.dependencies import get_task_store, get_workspace_service
+from app.api.dependencies import get_task_control_service, get_task_store, get_workspace_service
 from app.features.tasks.schemas import TaskStatusResponse
+from app.features.tasks.service import TaskControlService
 from app.features.tasks.store import SupabaseTaskStore
 from app.features.workspaces.service import WorkspaceService
 
@@ -38,6 +39,28 @@ async def get_task(
     store: SupabaseTaskStore = Depends(get_task_store),
 ) -> TaskStatusResponse:
     return await _get_task_snapshot(store, task_id)
+
+
+@router.post("/{task_id}/retry", response_model=TaskStatusResponse, summary="Retry a failed task")
+async def retry_task(
+    task_id: UUID = Depends(get_owned_task_id),
+    store: SupabaseTaskStore = Depends(get_task_store),
+    service: TaskControlService = Depends(get_task_control_service),
+) -> TaskStatusResponse:
+    task = await _get_task_snapshot(store, task_id)
+    retried = await service.retry_task(task.workspace_id, task_id)
+    return TaskStatusResponse.model_validate(retried)
+
+
+@router.post("/{task_id}/cancel", response_model=TaskStatusResponse, summary="Cancel a queued task")
+async def cancel_task(
+    task_id: UUID = Depends(get_owned_task_id),
+    store: SupabaseTaskStore = Depends(get_task_store),
+    service: TaskControlService = Depends(get_task_control_service),
+) -> TaskStatusResponse:
+    task = await _get_task_snapshot(store, task_id)
+    cancelled = await service.cancel_task(task.workspace_id, task_id)
+    return TaskStatusResponse.model_validate(cancelled)
 
 
 @router.get(
