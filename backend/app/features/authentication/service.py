@@ -115,7 +115,9 @@ class UsernameSignInService:
         if response.status_code not in {200, 201}:
             raise ApiError(502, "AUTH_PROVIDER_INVALID_RESPONSE", "账号创建失败，请稍后重试。")
 
-        return await self.sign_in(UsernameSignInRequest(identity=username, password=payload.password))
+        return await self.sign_in(
+            UsernameSignInRequest(identity=username, password=payload.password)
+        )
 
     async def sign_in(self, payload: UsernameSignInRequest) -> UsernameSignInResponse:
         email = await asyncio.to_thread(self._resolve_email, payload.identity)

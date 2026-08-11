@@ -28,7 +28,7 @@ docker compose up --build
 ## 验收路径
 
 1. 打开 `http://localhost:3001`，以用户名和密码注册账号；随后使用用户名登录。
-2. 创建个人知识库并上传 TXT、Markdown、CSV、XLSX、DOCX 或 PDF 文件。
+2. 创建个人知识库并上传 TXT、Markdown、CSV、XLS/XLSX、DOC/DOCX 或 PDF 文件。
 3. 在右侧处理状态中等待文件解析与向量索引完成。
 4. 在主面板提问，确认回答逐步出现，并可展开“本次引用”的文件片段。
 5. 退出并登录另一个测试账号，确认其无法查看第一个账号的资料。

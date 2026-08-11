@@ -5,7 +5,9 @@ import io
 from dataclasses import dataclass
 from pathlib import PurePath
 
+import xlrd
 from docx import Document as DocxDocument
+from legacy_doc import extract_text as extract_legacy_doc_text
 from openpyxl import load_workbook
 from PIL import Image
 from pypdf import PdfReader
@@ -15,8 +17,10 @@ from app.core.errors import ApiError
 TEXT_MIME_TYPES = {"text/plain", "text/markdown", "text/csv"}
 SPREADSHEET_MIME_TYPES = {
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
 }
 DOCX_MIME_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+DOC_MIME_TYPE = "application/msword"
 PDF_MIME_TYPE = "application/pdf"
 IMAGE_MIME_TYPES = {"image/jpeg", "image/png", "image/webp"}
 SUPPORTED_EXTENSIONS = {
@@ -25,7 +29,9 @@ SUPPORTED_EXTENSIONS = {
     ".markdown",
     ".csv",
     ".docx",
+    ".doc",
     ".xlsx",
+    ".xls",
     ".pdf",
     ".jpg",
     ".jpeg",
@@ -121,6 +127,45 @@ def _parse_spreadsheet(content: bytes) -> ParsedDocument:
     )
 
 
+def _parse_xls(content: bytes) -> ParsedDocument:
+    try:
+        workbook = xlrd.open_workbook(file_contents=content, on_demand=True)
+    except Exception as error:
+        raise ApiError(
+            422, "DOCUMENT_PARSE_FAILED", "无法读取 XLS 文件，请确认文件未损坏。"
+        ) from error
+
+    rows: list[str] = []
+    worksheet_names: list[str] = []
+    row_count = 0
+
+    try:
+        for worksheet in workbook.sheets():
+            worksheet_names.append(worksheet.name)
+            for row_index in range(worksheet.nrows):
+                values = [
+                    str(worksheet.cell_value(row_index, column_index)).strip()
+                    for column_index in range(worksheet.ncols)
+                    if str(worksheet.cell_value(row_index, column_index)).strip()
+                ]
+                if values:
+                    rows.append(f"[{worksheet.name}] " + " | ".join(values))
+                    row_count += 1
+    finally:
+        workbook.release_resources()
+
+    text = "\n".join(rows).strip()
+    return ParsedDocument(
+        text=text,
+        metadata={
+            "parser": "xls",
+            "worksheetNames": worksheet_names,
+            "rowCount": row_count,
+            "characterCount": len(text),
+        },
+    )
+
+
 def _parse_docx(content: bytes) -> ParsedDocument:
     try:
         document = DocxDocument(io.BytesIO(content))
@@ -149,6 +194,24 @@ def _parse_docx(content: bytes) -> ParsedDocument:
             "paragraphCount": len(paragraphs),
             "tableCount": len(document.tables),
             "tableRowCount": len(table_rows),
+            "characterCount": len(text),
+        },
+    )
+
+
+def _parse_doc(content: bytes) -> ParsedDocument:
+    try:
+        result = extract_legacy_doc_text(content)
+        text = result.text.strip()
+    except Exception as error:
+        raise ApiError(
+            422, "DOCUMENT_PARSE_FAILED", "无法读取 DOC 文件，请确认文件未损坏或未加密。"
+        ) from error
+
+    return ParsedDocument(
+        text=text,
+        metadata={
+            "parser": "doc",
             "characterCount": len(text),
         },
     )
@@ -199,6 +262,7 @@ def validate_document_type(mime_type: str, filename: str) -> None:
         mime_type in TEXT_MIME_TYPES
         or mime_type in SPREADSHEET_MIME_TYPES
         or mime_type == DOCX_MIME_TYPE
+        or mime_type == DOC_MIME_TYPE
         or mime_type == PDF_MIME_TYPE
         or mime_type in IMAGE_MIME_TYPES
     )
@@ -207,13 +271,13 @@ def validate_document_type(mime_type: str, filename: str) -> None:
         raise ApiError(
             415,
             "DOCUMENT_TYPE_UNSUPPORTED",
-            "仅支持 TXT、Markdown、CSV、XLSX、DOCX、PDF、JPG、PNG 和 WEBP 文件。",
+            "仅支持 TXT、Markdown、CSV、XLS、XLSX、DOC、DOCX、PDF、JPG、PNG 和 WEBP 文件。",
         )
     if not supported_mime_type and extension not in SUPPORTED_EXTENSIONS:
         raise ApiError(
             415,
             "DOCUMENT_TYPE_UNSUPPORTED",
-            "仅支持 TXT、Markdown、CSV、XLSX、DOCX、PDF、JPG、PNG 和 WEBP 文件。",
+            "仅支持 TXT、Markdown、CSV、XLS、XLSX、DOC、DOCX、PDF、JPG、PNG 和 WEBP 文件。",
         )
 
 
@@ -224,8 +288,12 @@ def parse_document(content: bytes, mime_type: str, filename: str) -> ParsedDocum
 
     if mime_type in TEXT_MIME_TYPES or extension in {".txt", ".md", ".markdown", ".csv"}:
         return _parse_text(content, "text/csv" if extension == ".csv" else mime_type)
+    if extension == ".xls":
+        return _parse_xls(content)
     if mime_type in SPREADSHEET_MIME_TYPES or extension == ".xlsx":
         return _parse_spreadsheet(content)
+    if extension == ".doc":
+        return _parse_doc(content)
     if mime_type == DOCX_MIME_TYPE or extension == ".docx":
         return _parse_docx(content)
     if mime_type == PDF_MIME_TYPE or extension == ".pdf":
@@ -236,5 +304,5 @@ def parse_document(content: bytes, mime_type: str, filename: str) -> ParsedDocum
     raise ApiError(
         415,
         "DOCUMENT_TYPE_UNSUPPORTED",
-        "仅支持 TXT、Markdown、CSV、XLSX、DOCX、PDF、JPG、PNG 和 WEBP 文件。",
+        "仅支持 TXT、Markdown、CSV、XLS、XLSX、DOC、DOCX、PDF、JPG、PNG 和 WEBP 文件。",
     )

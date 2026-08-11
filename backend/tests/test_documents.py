@@ -7,9 +7,11 @@ from docx import Document as DocxDocument
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from pypdf import PdfWriter
+from xlwt import Workbook as XlsWorkbook
 
 from app.api.dependencies import get_document_ingestion_service
 from app.core.config import Settings
+from app.features.documents import parser
 from app.features.documents.parser import limit_extracted_text, parse_document
 from app.features.documents.schemas import DocumentKind
 from app.features.documents.service import DocumentIngestionService, UploadInput
@@ -139,6 +141,35 @@ def test_parse_xlsx_extracts_worksheet_rows() -> None:
 
     assert result.text == "[竞品] 商品 | 价格\n[竞品] 竞品A | 129"
     assert result.metadata["worksheetNames"] == ["竞品"]
+
+
+def test_parse_xls_extracts_worksheet_rows() -> None:
+    workbook = XlsWorkbook()
+    worksheet = workbook.add_sheet("竞品")
+    worksheet.write(0, 0, "商品")
+    worksheet.write(0, 1, "价格")
+    worksheet.write(1, 0, "竞品A")
+    worksheet.write(1, 1, 129)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    result = parse_document(buffer.getvalue(), "application/vnd.ms-excel", "competitors.xls")
+
+    assert result.text == "[竞品] 商品 | 价格\n[竞品] 竞品A | 129.0"
+    assert result.metadata["parser"] == "xls"
+    assert result.metadata["worksheetNames"] == ["竞品"]
+
+
+def test_parse_doc_extracts_legacy_word_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    class LegacyDocResult:
+        text = "旧版 Word 内容"
+
+    monkeypatch.setattr(parser, "extract_legacy_doc_text", lambda _content: LegacyDocResult())
+
+    result = parse_document(b"legacy-doc", "application/msword", "meeting.doc")
+
+    assert result.text == "旧版 Word 内容"
+    assert result.metadata["parser"] == "doc"
 
 
 def test_parse_empty_pdf_marks_document_for_ocr() -> None:

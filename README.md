@@ -7,7 +7,7 @@ KnowTrace 的目标不是泛用聊天，而是让每次回答都能回到具体�
 ## 已实现的 MVP
 
 1. **个人知识库隔离**：使用用户名与密码登录后，每个用户仅能访问自己创建的知识库、资料、任务和对话。
-2. **文件入库**：支持 TXT、Markdown、CSV、XLSX、DOCX 与 PDF；原文件存入 Supabase Storage。
+2. **文件入库**：支持 TXT、Markdown、CSV、XLS/XLSX、DOC/DOCX 与 PDF；原文件存入 Supabase Storage。
 3. **异步处理**：FastAPI 创建任务，Redis + ARQ Worker 负责解析、切片、Embedding、失败重试和进度记录。
 4. **混合检索**：PostgreSQL + pgvector 结合向量相似度与全文关键词检索，只查询当前工作区已索引资料。
 5. **引用式 RAG 对话**：LangChain 调用 OpenAI-compatible 模型；回答通过 SSE 流式返回，并保留文件名、片段位置和摘录。
