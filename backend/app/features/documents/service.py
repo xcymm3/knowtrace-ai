@@ -11,7 +11,7 @@ import anyio
 
 from app.core.config import Settings
 from app.core.errors import ApiError
-from app.features.documents.parser import validate_document_type
+from app.features.documents.parser import normalize_document_mime_type, validate_document_type
 from app.features.documents.schemas import DocumentKind, DocumentUploadResponse
 from app.features.documents.store import DocumentStore
 
@@ -48,7 +48,8 @@ class DocumentIngestionService:
         return await anyio.to_thread.run_sync(self._store.list_workspace_documents, workspace_id)
 
     async def ingest(self, upload: UploadInput) -> DocumentUploadResponse:
-        validate_document_type(upload.mime_type, upload.file_name)
+        mime_type = normalize_document_mime_type(upload.mime_type, upload.file_name)
+        validate_document_type(mime_type, upload.file_name)
         if len(upload.content) == 0:
             raise ApiError(422, "DOCUMENT_EMPTY", "上传文件不能为空。")
         if len(upload.content) > self._settings.document_max_upload_size_bytes:
@@ -71,7 +72,7 @@ class DocumentIngestionService:
             "workspace_id": str(upload.workspace_id),
             "kind": upload.kind.value,
             "file_name": safe_file_name,
-            "mime_type": upload.mime_type,
+            "mime_type": mime_type,
             "size_bytes": len(upload.content),
             "storage_bucket": self._settings.supabase_storage_bucket,
             "storage_path": storage_path,
@@ -87,7 +88,7 @@ class DocumentIngestionService:
                 self._store.upload_file,
                 storage_path,
                 upload.content,
-                upload.mime_type,
+                mime_type,
             )
             file_uploaded = True
             await anyio.to_thread.run_sync(self._store.create_source_document, document_data)

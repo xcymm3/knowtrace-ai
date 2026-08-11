@@ -67,7 +67,7 @@ class SupabaseDocumentStore:
             raise ApiError(
                 502,
                 "DOCUMENT_STORAGE_UPLOAD_FAILED",
-                "文件未能保存到资料存储。请确认 Supabase 已执行最新 Storage Migration。",
+                "文件存储服务拒绝了上传请求，请检查文件格式后重试。",
             ) from error
 
     def create_source_document(self, data: dict[str, Any]) -> dict[str, Any]:

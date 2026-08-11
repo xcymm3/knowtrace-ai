@@ -38,6 +38,21 @@ SUPPORTED_EXTENSIONS = {
     ".png",
     ".webp",
 }
+MIME_TYPE_BY_EXTENSION = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".markdown": "text/markdown",
+    ".csv": "text/csv",
+    ".xls": "application/vnd.ms-excel",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".pdf": "application/pdf",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
 
 
 @dataclass(frozen=True)
@@ -45,6 +60,11 @@ class ParsedDocument:
     text: str
     metadata: dict[str, object]
     needs_ocr: bool = False
+
+
+def normalize_document_mime_type(mime_type: str, filename: str) -> str:
+    """Prefer a known file extension over browsers' generic upload MIME types."""
+    return MIME_TYPE_BY_EXTENSION.get(PurePath(filename).suffix.lower(), mime_type)
 
 
 def limit_extracted_text(parsed: ParsedDocument, max_characters: int) -> ParsedDocument:
@@ -284,6 +304,7 @@ def validate_document_type(mime_type: str, filename: str) -> None:
 def parse_document(content: bytes, mime_type: str, filename: str) -> ParsedDocument:
     """Extract deterministic text/metadata; OCR is deferred to the worker pipeline."""
     extension = PurePath(filename).suffix.lower()
+    mime_type = normalize_document_mime_type(mime_type, filename)
     validate_document_type(mime_type, filename)
 
     if mime_type in TEXT_MIME_TYPES or extension in {".txt", ".md", ".markdown", ".csv"}:

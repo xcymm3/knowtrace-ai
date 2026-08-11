@@ -24,6 +24,7 @@ class FakeDocumentStore:
         self.workspace_id = workspace_id
         self.fail_on_task = fail_on_task
         self.uploaded_paths: list[str] = []
+        self.uploaded_mime_types: list[str] = []
         self.documents: list[dict[str, object]] = []
         self.tasks: list[dict[str, object]] = []
 
@@ -35,8 +36,9 @@ class FakeDocumentStore:
             return []
         return self.documents
 
-    def upload_file(self, path: str, _content: bytes, _mime_type: str) -> None:
+    def upload_file(self, path: str, _content: bytes, mime_type: str) -> None:
         self.uploaded_paths.append(path)
+        self.uploaded_mime_types.append(mime_type)
 
     def create_source_document(self, data: dict[str, object]) -> dict[str, object]:
         self.documents.append(data)
@@ -68,7 +70,7 @@ class FailingUploadStore(FakeDocumentStore):
         raise ApiError(
             502,
             "DOCUMENT_STORAGE_UPLOAD_FAILED",
-            "文件未能保存到资料存储。请确认 Supabase 已执行最新 Storage Migration。",
+            "文件存储服务拒绝了上传请求，请检查文件格式后重试。",
         )
 
 
@@ -261,7 +263,7 @@ def test_upload_returns_a_clear_error_when_storage_rejects_file() -> None:
         settings=Settings(document_max_upload_size_bytes=1_000_000),
     )
 
-    with pytest.raises(ApiError, match="Supabase 已执行最新 Storage Migration") as error:
+    with pytest.raises(ApiError, match="文件存储服务拒绝了上传请求") as error:
         asyncio.run(
             service.ingest(
                 UploadInput(
@@ -275,6 +277,31 @@ def test_upload_returns_a_clear_error_when_storage_rejects_file() -> None:
         )
 
     assert error.value.code == "DOCUMENT_STORAGE_UPLOAD_FAILED"
+
+
+def test_upload_normalizes_legacy_xls_mime_type_before_storing() -> None:
+    workspace_id = uuid4()
+    fake_store = FakeDocumentStore(workspace_id)
+    service = DocumentIngestionService(
+        store=fake_store,
+        queue=FakeTaskQueue(),
+        settings=Settings(document_max_upload_size_bytes=1_000_000),
+    )
+
+    asyncio.run(
+        service.ingest(
+            UploadInput(
+                workspace_id=workspace_id,
+                kind=DocumentKind.GENERAL,
+                file_name="legacy.xls",
+                mime_type="application/octet-stream",
+                content=b"legacy-office-content",
+            )
+        )
+    )
+
+    assert fake_store.uploaded_mime_types == ["application/vnd.ms-excel"]
+    assert fake_store.documents[0]["mime_type"] == "application/vnd.ms-excel"
 
 
 def test_upload_keeps_unicode_file_name_and_cleans_up_on_persistence_failure() -> None:
