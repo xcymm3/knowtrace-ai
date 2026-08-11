@@ -172,6 +172,37 @@ def test_parse_xls_extracts_worksheet_rows() -> None:
     assert result.metadata["worksheetNames"] == ["竞品"]
 
 
+def test_parse_xls_skips_binary_like_cells() -> None:
+    workbook = XlsWorkbook()
+    worksheet = workbook.add_sheet("协议")
+    worksheet.write(0, 0, "\u6b63\u5e38\u6307\u4ee4")
+    worksheet.write(1, 0, "\u00c7 " * 80)
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    result = parse_document(buffer.getvalue(), "application/vnd.ms-excel", "protocol.xls")
+
+    assert "\u6b63\u5e38\u6307\u4ee4" in result.text
+    assert "\u00c7" not in result.text
+    assert result.metadata["skippedCellCount"] == 1
+
+
+def test_parse_xls_skips_rows_made_from_many_binary_like_cells() -> None:
+    workbook = XlsWorkbook()
+    worksheet = workbook.add_sheet("协议")
+    worksheet.write(0, 0, "\u6b63\u5e38\u6307\u4ee4")
+    for column_index in range(80):
+        worksheet.write(1, column_index, "\u00c7")
+    buffer = io.BytesIO()
+    workbook.save(buffer)
+
+    result = parse_document(buffer.getvalue(), "application/vnd.ms-excel", "protocol.xls")
+
+    assert "\u6b63\u5e38\u6307\u4ee4" in result.text
+    assert "\u00c7" not in result.text
+    assert result.metadata["skippedCellCount"] == 80
+
+
 def test_parse_doc_extracts_legacy_word_text(monkeypatch: pytest.MonkeyPatch) -> None:
     class LegacyDocResult:
         text = "旧版 Word 内容"

@@ -51,7 +51,13 @@ async def process_parse_document(
     await _update_task(
         store,
         task_id,
-        {"status": "RUNNING", "progress": 10, "attempt_count": attempt, "started_at": _utc_now()},
+        {
+            "status": "RUNNING",
+            "progress": 10,
+            "attempt_count": attempt,
+            "started_at": _utc_now(),
+            "completed_at": None,
+        },
     )
 
     try:
@@ -217,7 +223,13 @@ async def process_generate_embeddings(
     await _update_task(
         task_store,
         task_id,
-        {"status": "RUNNING", "progress": 10, "attempt_count": attempt, "started_at": _utc_now()},
+        {
+            "status": "RUNNING",
+            "progress": 10,
+            "attempt_count": attempt,
+            "started_at": _utc_now(),
+            "completed_at": None,
+        },
     )
 
     try:

@@ -112,6 +112,61 @@ def _parse_text(content: bytes, mime_type: str) -> ParsedDocument:
     )
 
 
+def _is_cjk_character(character: str) -> bool:
+    return "\u3400" <= character <= "\u9fff" or "\uf900" <= character <= "\ufaff"
+
+
+def _is_readable_spreadsheet_text(text: str) -> bool:
+    """Recognize human-readable spreadsheet values after normalizing whitespace."""
+    visible_characters = [character for character in text if not character.isspace()]
+    if len(visible_characters) < 32:
+        return True
+
+    basic_character_count = sum(
+        character.isascii() or _is_cjk_character(character) for character in visible_characters
+    )
+    # Chinese workbook prose is mostly CJK plus ASCII. A large proportion of
+    # other glyphs is characteristic of raw device frames decoded as text.
+    if basic_character_count / len(visible_characters) < 0.82:
+        return False
+
+    letters = [character.casefold() for character in visible_characters if character.isalpha()]
+    highest_letter_ratio = (
+        max(letters.count(character) for character in set(letters)) / len(letters)
+        if letters
+        else 0
+    )
+    return highest_letter_ratio <= 0.45
+
+
+def _spreadsheet_cell_text(value: object) -> str | None:
+    """Return readable spreadsheet text and reject embedded binary payloads.
+
+    Some legacy XLS files place device frames or other raw bytes in a cell.
+    xlrd can decode those bytes into Latin-1 and control characters, but that
+    result is not meaningful RAG material and can poison an otherwise useful
+    workbook's index.
+    """
+    readable_lines: list[str] = []
+    for raw_line in str(value).replace("\r", "\n").split("\n"):
+        control_character_count = sum(
+            not character.isprintable() and character != "\t" for character in raw_line
+        )
+        # A long line with control bytes is a device frame, not formatted cell
+        # text. Skip the line while retaining legitimate lines in the same cell.
+        if len(raw_line) >= 32 and control_character_count >= 2:
+            continue
+        normalized = "".join(
+            character if character.isprintable() or character == "\t" else " "
+            for character in raw_line
+        )
+        text = " ".join(normalized.split())
+        if text and _is_readable_spreadsheet_text(text):
+            readable_lines.append(text)
+
+    return " ".join(readable_lines) or None
+
+
 def _parse_spreadsheet(content: bytes) -> ParsedDocument:
     try:
         workbook = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
@@ -123,16 +178,26 @@ def _parse_spreadsheet(content: bytes) -> ParsedDocument:
     rows: list[str] = []
     worksheet_names: list[str] = []
     row_count = 0
+    skipped_cell_count = 0
 
     for worksheet in workbook.worksheets:
         worksheet_names.append(worksheet.title)
         for row in worksheet.iter_rows(values_only=True):
-            values = [
-                str(value).strip() for value in row if value is not None and str(value).strip()
-            ]
-            if values:
-                rows.append(f"[{worksheet.title}] " + " | ".join(values))
+            values: list[str] = []
+            for value in row:
+                if value is None or not str(value).strip():
+                    continue
+                extracted = _spreadsheet_cell_text(value)
+                if extracted is None:
+                    skipped_cell_count += 1
+                    continue
+                values.append(extracted)
+            row_text = " | ".join(values)
+            if row_text and _is_readable_spreadsheet_text(row_text):
+                rows.append(f"[{worksheet.title}] {row_text}")
                 row_count += 1
+            elif row_text:
+                skipped_cell_count += len(values)
 
     workbook.close()
     text = "\n".join(rows).strip()
@@ -142,6 +207,7 @@ def _parse_spreadsheet(content: bytes) -> ParsedDocument:
             "parser": "spreadsheet",
             "worksheetNames": worksheet_names,
             "rowCount": row_count,
+            "skippedCellCount": skipped_cell_count,
             "characterCount": len(text),
         },
     )
@@ -158,19 +224,28 @@ def _parse_xls(content: bytes) -> ParsedDocument:
     rows: list[str] = []
     worksheet_names: list[str] = []
     row_count = 0
+    skipped_cell_count = 0
 
     try:
         for worksheet in workbook.sheets():
             worksheet_names.append(worksheet.name)
             for row_index in range(worksheet.nrows):
-                values = [
-                    str(worksheet.cell_value(row_index, column_index)).strip()
-                    for column_index in range(worksheet.ncols)
-                    if str(worksheet.cell_value(row_index, column_index)).strip()
-                ]
-                if values:
-                    rows.append(f"[{worksheet.name}] " + " | ".join(values))
+                values: list[str] = []
+                for column_index in range(worksheet.ncols):
+                    value = worksheet.cell_value(row_index, column_index)
+                    if not str(value).strip():
+                        continue
+                    extracted = _spreadsheet_cell_text(value)
+                    if extracted is None:
+                        skipped_cell_count += 1
+                        continue
+                    values.append(extracted)
+                row_text = " | ".join(values)
+                if row_text and _is_readable_spreadsheet_text(row_text):
+                    rows.append(f"[{worksheet.name}] {row_text}")
                     row_count += 1
+                elif row_text:
+                    skipped_cell_count += len(values)
     finally:
         workbook.release_resources()
 
@@ -181,6 +256,7 @@ def _parse_xls(content: bytes) -> ParsedDocument:
             "parser": "xls",
             "worksheetNames": worksheet_names,
             "rowCount": row_count,
+            "skippedCellCount": skipped_cell_count,
             "characterCount": len(text),
         },
     )

@@ -31,6 +31,22 @@ class SupabaseKnowledgeStore:
         return self._client.storage.from_(bucket).download(path)
 
     def replace_chunks(self, document_id: UUID, chunks: list[dict[str, Any]]) -> None:
+        existing = (
+            self._client.table("document_chunks")
+            .select("id")
+            .eq("document_id", str(document_id))
+            .execute()
+        )
+        existing_chunk_ids = [str(chunk["id"]) for chunk in existing.data or []]
+        if existing_chunk_ids:
+            # Re-indexing changes chunk boundaries. Citations pointing to the
+            # retired chunks cannot truthfully be carried over to the new text.
+            (
+                self._client.table("message_citations")
+                .delete()
+                .in_("chunk_id", existing_chunk_ids)
+                .execute()
+            )
         self._client.table("document_chunks").delete().eq("document_id", str(document_id)).execute()
         if chunks:
             prepared_chunks = [
