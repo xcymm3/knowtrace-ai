@@ -94,6 +94,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const streamAbortRef = useRef<AbortController | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const conversationTitleInputRef = useRef<HTMLInputElement | null>(null);
+  const workspaceLoadVersionRef = useRef(0);
 
   const activeProject = projects.find((project) => project.id === projectId) ?? null;
   const activeConversation = conversations.find((conversation) => conversation.id === conversationId) ?? null;
@@ -106,20 +107,29 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   }, [uploadActivity, workspace.documents]);
 
   const loadWorkspace = useCallback(async (workspaceId: string) => {
-    const [documentsResult, tasksResult, conversationsResult] = await Promise.allSettled([
-      knowTraceApi.listDocuments(workspaceId),
-      knowTraceApi.listTasks(workspaceId),
-      knowTraceApi.listConversations(workspaceId),
-    ]);
-    setWorkspace({
-      documents: documentsResult.status === "fulfilled" ? documentsResult.value : [],
-      tasks: tasksResult.status === "fulfilled" ? tasksResult.value : [],
+    const requestVersion = ++workspaceLoadVersionRef.current;
+    const isLatestRequest = () => workspaceLoadVersionRef.current === requestVersion;
+
+    const documentsRequest = knowTraceApi.listDocuments(workspaceId).then((documents) => {
+      if (isLatestRequest()) setWorkspace((current) => ({ ...current, documents }));
+      return documents;
     });
-    if (conversationsResult.status === "fulfilled") {
-      const nextConversations = conversationsResult.value;
+    const tasksRequest = knowTraceApi.listTasks(workspaceId).then((tasks) => {
+      if (isLatestRequest()) setWorkspace((current) => ({ ...current, tasks }));
+      return tasks;
+    });
+    const conversationsRequest = knowTraceApi.listConversations(workspaceId).then((nextConversations) => {
+      if (!isLatestRequest()) return nextConversations;
       setConversations(nextConversations);
       setConversationId((current) => nextConversations.some((conversation) => conversation.id === current) ? current : (nextConversations[0]?.id ?? null));
-    }
+      return nextConversations;
+    });
+    const [documentsResult, tasksResult, conversationsResult] = await Promise.allSettled([
+      documentsRequest,
+      tasksRequest,
+      conversationsRequest,
+    ]);
+    if (!isLatestRequest()) return;
 
     const failedResult = [documentsResult, tasksResult, conversationsResult].find(
       (result) => result.status === "rejected",
@@ -154,6 +164,8 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
       setError(null);
       setMessages([]);
       setConversationId(null);
+      setWorkspace(emptyWorkspace);
+      setConversations([]);
       setIsConversationCreatorOpen(false);
       setNewConversationTitle("");
       try {
@@ -316,11 +328,13 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     setError(null);
     try {
       const conversation = await knowTraceApi.createConversation(projectId, title);
-      setConversations((current) => [conversation, ...current]);
+      workspaceLoadVersionRef.current += 1;
+      setConversations((current) => [conversation, ...current.filter((item) => item.id !== conversation.id)]);
       setConversationId(conversation.id);
       setMessages([]);
       setNewConversationTitle("");
       setIsConversationCreatorOpen(false);
+      void loadWorkspace(projectId).catch((caughtError) => setError(readableError(caughtError)));
     } catch (caughtError) {
       setError(readableError(caughtError));
     } finally {

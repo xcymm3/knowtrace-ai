@@ -31,6 +31,7 @@ async function mockWorkspaceApi(page: Page) {
   let conversationCreated = false;
   let conversationDeleted = false;
   let createdConversationTitle = "";
+  let firstConversationListRequest = true;
 
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -75,7 +76,7 @@ async function mockWorkspaceApi(page: Page) {
       return fulfillJson(route, []);
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "GET") {
-      return fulfillJson(route, [
+      const conversations = [
         ...(conversationCreated && !conversationDeleted ? [{
           id: conversationId,
           workspace_id: workspaceId,
@@ -90,7 +91,12 @@ async function mockWorkspaceApi(page: Page) {
           created_at: "2026-08-09T00:00:00Z",
           updated_at: "2026-08-09T00:00:00Z",
         },
-      ]);
+      ];
+      if (firstConversationListRequest) {
+        firstConversationListRequest = false;
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      return fulfillJson(route, conversations);
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "POST") {
       conversationCreated = true;
@@ -169,7 +175,6 @@ test("用户可创建知识库、上传已索引资料、获得带引用回答�
   await page.getByPlaceholder("新建知识库").fill("测试知识库");
   await page.getByRole("button", { name: "新建", exact: true }).click();
   await expect(page.getByRole("heading", { name: "测试知识库" })).toBeVisible();
-  await expect(page.getByText("历史对话", { exact: true })).toBeVisible();
 
   await page.locator('input[type="file"]').setInputFiles({
     name: "meeting.txt",
@@ -185,6 +190,7 @@ test("用户可创建知识库、上传已索引资料、获得带引用回答�
   await page.getByPlaceholder("输入对话名称").fill("会议讨论");
   await page.getByRole("button", { name: "创建", exact: true }).click();
   await expect(page.getByText("会议讨论", { exact: true })).toBeVisible();
+  await expect(page.getByText("历史对话", { exact: true })).toBeVisible();
   await page.locator("#message").fill("会议结论是什么？");
   await page.getByRole("button", { name: "发送问题" }).click();
   await expect(page.getByText("会议决定继续推进，由张三负责验证。")).toBeVisible();
