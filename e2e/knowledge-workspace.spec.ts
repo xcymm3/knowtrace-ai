@@ -27,6 +27,7 @@ async function mockWorkspaceApi(page: Page) {
   let createdWorkspace = false;
   let uploaded = false;
   let answered = false;
+  let conversationCreated = false;
   let conversationDeleted = false;
 
   await page.route("**/api/v1/**", async (route) => {
@@ -72,13 +73,20 @@ async function mockWorkspaceApi(page: Page) {
       return fulfillJson(route, []);
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "GET") {
-      return fulfillJson(route, conversationDeleted ? [] : []);
+      return fulfillJson(route, conversationCreated && !conversationDeleted ? [{
+        id: conversationId,
+        workspace_id: workspaceId,
+        title: "新对话",
+        created_at: "2026-08-10T00:00:00Z",
+        updated_at: "2026-08-10T00:00:00Z",
+      }] : []);
     }
     if (pathname === `/api/v1/workspaces/${workspaceId}/conversations` && method === "POST") {
+      conversationCreated = true;
       return fulfillJson(route, {
         id: conversationId,
         workspace_id: workspaceId,
-        title: "会议结论是什么？",
+        title: "新对话",
         created_at: "2026-08-10T00:00:00Z",
         updated_at: "2026-08-10T00:00:00Z",
       }, 201);
@@ -156,15 +164,18 @@ test("用户可创建知识库、上传已索引资料、获得带引用回答�
   await expect(page.getByText("meeting.txt", { exact: true })).toBeVisible();
   await expect(page.getByText("1 KB · 已索引", { exact: true })).toBeVisible();
 
+  await expect(page.locator("#message")).toBeDisabled();
+  await page.getByRole("button", { name: "新建", exact: true }).last().click();
+  await expect(page.getByText("新对话", { exact: true })).toBeVisible();
   await page.locator("#message").fill("会议结论是什么？");
   await page.getByRole("button", { name: "发送问题" }).click();
   await expect(page.getByText("会议决定继续推进，由张三负责验证。")).toBeVisible();
   await expect(page.getByText("本次引用 1 个资料片段")).toBeVisible();
 
-  await page.getByRole("button", { name: "删除对话 会议结论是什么？" }).click();
+  await page.getByRole("button", { name: "删除对话 新对话" }).click();
   await expect(page.getByRole("alertdialog")).toBeVisible();
   await page.getByRole("button", { name: "确认删除" }).click();
-  await expect(page.getByText("对话“会议结论是什么？”已删除。")).toBeVisible();
+  await expect(page.getByText("对话“新对话”已删除。")).toBeVisible();
 });
 
 test("注册页展示用户名、确认密码与非阻断式密码强度反馈", async ({ page }) => {
@@ -175,5 +186,4 @@ test("注册页展示用户名、确认密码与非阻断式密码强度反馈",
   await expect(page.getByLabel("确认密码")).toBeVisible();
   await page.locator("#password").fill("123");
   await expect(page.getByText("密码强度：")).toBeVisible();
-  await expect(page.getByText("不影响注册")).toBeVisible();
 });

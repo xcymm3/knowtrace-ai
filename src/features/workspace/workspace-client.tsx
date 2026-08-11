@@ -46,10 +46,6 @@ function formatBytes(size: number) {
   return size < 1024 * 1024 ? `${Math.max(1, Math.ceil(size / 1024))} KB` : `${(size / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function titleFromQuestion(question: string) {
-  return question.length > 22 ? `${question.slice(0, 22)}…` : question;
-}
-
 function Sources({ sources }: { sources: RagSource[] }) {
   if (!sources.length) return null;
   return (
@@ -300,15 +296,6 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     }
   }
 
-  async function ensureConversation(cleanQuestion: string) {
-    if (!projectId) throw new ApiError("请先选择一个知识库。");
-    if (conversationId) return conversationId;
-    const conversation = await knowTraceApi.createConversation(projectId, titleFromQuestion(cleanQuestion));
-    setConversations((current) => [conversation, ...current]);
-    setConversationId(conversation.id);
-    return conversation.id;
-  }
-
   async function handleSend(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isStreaming) {
@@ -317,6 +304,10 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     }
     const cleanQuestion = question.trim();
     if (!cleanQuestion || !projectId) return;
+    if (!conversationId) {
+      setError("请先在左侧新建一段对话，再开始提问。");
+      return;
+    }
     if (!indexedDocuments.length) {
       setError("请先上传并等待至少一份资料完成索引，再开始提问。");
       return;
@@ -332,7 +323,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     const localAssistantId = `local-assistant-${Date.now()}`;
 
     try {
-      const nextConversationId = await ensureConversation(cleanQuestion);
+      const nextConversationId = conversationId;
       const now = new Date().toISOString();
       setMessages((current) => [
         ...current,
@@ -374,7 +365,6 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
       <a className={styles.skipLink} href="#workspace-main">跳至主内容</a>
       <aside className={styles.sidebar} aria-label="KnowTrace 知识库导航">
         <a className={styles.brand} href="#workspace-main"><Image className={styles.brandMark} src="/knowtrace-mark.svg" width={48} height={48} alt="" priority />KnowTrace</a>
-        <p className={styles.brandSubline}>可追溯知识工作台</p>
 
         <section className={styles.projectNavigation} aria-labelledby="projects-title">
           <div className={styles.railHeading}><h2 id="projects-title">知识库</h2><span>{projects.length}</span></div>
@@ -400,7 +390,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
           <div className={styles.railHeading}><h2 id="conversations-title">对话</h2><button className={styles.railAction} type="button" onClick={handleCreateConversation} disabled={isStreaming}>新建</button></div>
           <div className={styles.conversationList} role="list">
             {conversations.map((conversation) => <div className={styles.railItem} key={conversation.id} role="listitem"><button className={`${styles.conversationItem} ${conversation.id === conversationId ? styles.conversationItemActive : ""}`} type="button" onClick={() => setConversationId(conversation.id)} aria-pressed={conversation.id === conversationId} disabled={isStreaming}>{conversation.title}</button><button className={styles.deleteRailItem} type="button" onClick={() => setDeletionTarget({ kind: "conversation", conversation })} aria-label={`删除对话 ${conversation.title}`} title="删除对话" disabled={isStreaming || isDeleting}>×</button></div>)}
-            {!conversations.length ? <p className={styles.railEmpty}>第一次提问时会自动建立一段对话。</p> : null}
+            {!conversations.length ? <p className={styles.railEmpty}>点击“新建”创建一段对话后即可开始提问。</p> : null}
           </div>
         </section> : null}
 
@@ -451,15 +441,15 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
               </article>)}
             </div> : <div className={styles.conversationPlaceholder}>
               <div className={styles.placeholderGlyph} aria-hidden="true" />
-              <h2>{indexedDocuments.length ? "可以开始提问了。" : "资料准备就绪后，在这里开始对话。"}</h2>
+              <h2>{indexedDocuments.length ? activeConversation ? "可以开始提问了。" : "新建一段对话后开始提问。" : "资料准备就绪后，在这里开始对话。"}</h2>
               <p>KnowTrace 只检索当前知识库中的已索引资料，并在回答中附上可回看的原文来源。</p>
               <dl className={styles.workspaceMetrics}><div><dt>已索引文件</dt><dd>{indexedDocuments.length}</dd></div><div><dt>等待处理</dt><dd>{workspace.documents.length - indexedDocuments.length}</dd></div><div><dt>运行任务</dt><dd>{activeTasks.length}</dd></div></dl>
             </div>}
 
             <form className={styles.composer} onSubmit={handleSend}>
               <label className={styles.srOnly} htmlFor="message">向知识库资料提问</label>
-              <textarea id="message" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={handleComposerKeyDown} disabled={!indexedDocuments.length || isStreaming} placeholder={indexedDocuments.length ? "向当前知识库的资料提问，Enter 发送，Shift+Enter 换行" : "等待至少一份资料完成索引后即可提问"} rows={1} />
-              <button className={styles.iconButton} type="submit" disabled={!isStreaming && (!question.trim() || !indexedDocuments.length)} aria-label={isStreaming ? "停止生成" : "发送问题"}>{isStreaming ? "■" : "↑"}</button>
+              <textarea id="message" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={handleComposerKeyDown} disabled={!indexedDocuments.length || !conversationId || isStreaming} placeholder={!indexedDocuments.length ? "等待至少一份资料完成索引后即可提问" : !conversationId ? "请先在左侧新建一段对话" : "向当前知识库的资料提问，Enter 发送，Shift+Enter 换行"} rows={1} />
+              <button className={styles.iconButton} type="submit" disabled={!isStreaming && (!question.trim() || !indexedDocuments.length || !conversationId)} aria-label={isStreaming ? "停止生成" : "发送问题"}>{isStreaming ? "■" : "↑"}</button>
             </form>
           </section>
 
