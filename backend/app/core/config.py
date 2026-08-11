@@ -1,3 +1,4 @@
+import os
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -22,6 +23,10 @@ class Settings(BaseSettings):
     supabase_service_role_key: str | None = None
     supabase_storage_bucket: str = "knowtrace-assets"
     redis_url: str | None = None
+    # Docker Compose uses the persistent ARQ worker. Vercel does not host a
+    # long-lived process, so "auto" executes short ingestion jobs in the API
+    # request that accepted the upload instead.
+    task_execution_mode: str = "auto"
     document_max_upload_size_bytes: int = 52_428_800
     document_max_extracted_characters: int = 1_000_000
     embedding_base_url: str | None = None
@@ -48,6 +53,15 @@ class Settings(BaseSettings):
     @property
     def redis_is_configured(self) -> bool:
         return bool(self.redis_url)
+
+    @property
+    def uses_inline_task_execution(self) -> bool:
+        mode = self.task_execution_mode.lower().strip()
+        if mode == "inline":
+            return True
+        if mode == "queue":
+            return False
+        return bool(os.getenv("VERCEL"))
 
     @property
     def embeddings_is_configured(self) -> bool:

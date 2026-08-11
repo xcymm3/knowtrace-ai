@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, status
 from app.api.auth import CurrentUser, get_current_user, get_owned_workspace_id
 from app.api.dependencies import (
     get_document_ingestion_service,
+    get_inline_task_queue,
     get_rag_conversation_service,
     get_task_store,
     get_workspace_service,
@@ -14,6 +15,7 @@ from app.api.dependencies import (
 from app.features.conversations.service import RagConversationService
 from app.features.documents.schemas import SourceDocumentResponse
 from app.features.documents.service import DocumentIngestionService
+from app.features.tasks.inline import InlineTaskQueue
 from app.features.tasks.schemas import TaskStatusResponse
 from app.features.tasks.store import SupabaseTaskStore
 from app.features.workspaces.schemas import (
@@ -60,6 +62,12 @@ async def get_workspace_overview(
     conversation_service: RagConversationService = Depends(get_rag_conversation_service),
 ) -> WorkspaceOverviewResponse:
     """Read every panel of one knowledge workspace in a single browser request."""
+    # A prior Vercel request can be terminated after it has persisted a task.
+    # Resume one stale task while loading the workspace, rather than leaving
+    # the user with a permanently spinning "正在解析" status.
+    inline_queue: InlineTaskQueue | None = get_inline_task_queue()
+    if inline_queue:
+        await inline_queue.resume_workspace_tasks(workspace_id)
     documents, tasks, conversations = await asyncio.gather(
         document_service.list_documents(workspace_id),
         anyio.to_thread.run_sync(task_store.list_workspace_tasks, workspace_id),

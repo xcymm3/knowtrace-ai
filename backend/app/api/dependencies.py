@@ -10,6 +10,7 @@ from app.features.knowledge.embeddings import OpenAICompatibleEmbeddingProvider
 from app.features.knowledge.service import KnowledgeSearchService
 from app.features.knowledge.store import SupabaseKnowledgeStore
 from app.features.llm.service import LangChainAnswerService, build_langchain_answer_service
+from app.features.tasks.inline import InlineTaskQueue
 from app.features.tasks.queue import ArqTaskQueue
 from app.features.tasks.store import SupabaseTaskStore
 from app.features.workspaces.service import WorkspaceService
@@ -25,11 +26,22 @@ def get_username_sign_in_service() -> UsernameSignInService:
 def get_document_ingestion_service() -> DocumentIngestionService:
     settings = get_settings()
     client = create_supabase_client(settings)
+    queue = (
+        InlineTaskQueue(settings)
+        if settings.uses_inline_task_execution
+        else ArqTaskQueue(settings.redis_url)
+    )
     return DocumentIngestionService(
         store=SupabaseDocumentStore(client, settings.supabase_storage_bucket),
-        queue=ArqTaskQueue(settings.redis_url),
+        queue=queue,
         settings=settings,
     )
+
+
+@lru_cache
+def get_inline_task_queue() -> InlineTaskQueue | None:
+    settings = get_settings()
+    return InlineTaskQueue(settings) if settings.uses_inline_task_execution else None
 
 
 @lru_cache

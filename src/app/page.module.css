@@ -38,6 +38,8 @@
 .projectItemName { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conversationNavigation { min-block-size: 0; margin-block-start: var(--space-md); padding-block-start: var(--space-sm); border-block-start: var(--rule-hair) solid var(--color-rule); }
 .railAction { display: grid; inline-size: var(--control-height); min-block-size: var(--control-height); padding: 0; place-items: center; border: var(--rule-hair) solid var(--color-rule); border-radius: var(--radius-control); background: var(--color-paper-raised); color: var(--color-accent); cursor: pointer; font-family: var(--font-body); font-size: var(--text-lg); font-weight: 500; line-height: 1; white-space: nowrap; transition: background-color var(--dur-short) var(--ease-out), color var(--dur-short) var(--ease-out), transform var(--dur-short) var(--ease-out), opacity var(--dur-short) var(--ease-out); }
+.createRailAction { inline-size: 2.25rem; min-block-size: 2.25rem; border-color: var(--color-accent); border-radius: 0.7rem; background: var(--color-accent); box-shadow: 0 0.2rem 0.55rem color-mix(in srgb, var(--color-accent) 26%, transparent); color: var(--color-accent-ink); font-family: var(--font-mono); font-size: 1.35rem; font-weight: 400; line-height: 0.8; }
+.createRailAction:hover:not(:disabled) { background: var(--color-focus); box-shadow: 0 0.35rem 0.8rem color-mix(in srgb, var(--color-accent) 35%, transparent); transform: translateY(-1px); }
 .railAction:hover:not(:disabled) { background: var(--color-accent-soft); transform: translateY(-1px); }
 .railAction:focus-visible { outline: var(--rule-focus) solid var(--color-focus); outline-offset: var(--focus-offset); }
 .railAction:active:not(:disabled) { transform: translateY(1px); }

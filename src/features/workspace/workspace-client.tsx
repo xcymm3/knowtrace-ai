@@ -400,13 +400,13 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
           <div className={styles.railHeading}><h2 id="projects-title">知识库</h2><span>{projects.length}</span></div>
           <form className={styles.createForm} onSubmit={handleCreateWorkspace}>
             <label className={styles.srOnly} htmlFor="workspace-name">知识库名称</label>
-            <input id="workspace-name" name="name" required placeholder="新建知识库" />
-            <button className={styles.primaryButton} type="submit" disabled={isSubmitting}>新建</button>
+            <input id="workspace-name" name="name" required placeholder="新建知识库" disabled={isLoading || isSubmitting || isStreaming} />
+            <button className={`${styles.railAction} ${styles.createRailAction}`} type="submit" disabled={isLoading || isSubmitting || isStreaming} aria-label="创建知识库" title="创建知识库">+</button>
           </form>
           <div className={styles.projectList} role="list">
             {projects.map((project) => (
               <div className={styles.railItem} key={project.id} role="listitem">
-                <button className={`${styles.projectItem} ${project.id === projectId ? styles.projectItemActive : ""}`} type="button" onClick={() => setProjectId(project.id)} aria-pressed={project.id === projectId} disabled={isStreaming}>
+                <button className={`${styles.projectItem} ${project.id === projectId ? styles.projectItemActive : ""}`} type="button" onClick={() => setProjectId(project.id)} aria-pressed={project.id === projectId} disabled={isLoading || isStreaming}>
                   <span className={styles.projectItemName}>{project.name}</span>
                 </button>
                 <button className={styles.deleteRailItem} type="button" onClick={() => setDeletionTarget({ kind: "workspace", workspace: project })} aria-label={`删除知识库 ${project.name}`} title="删除知识库" disabled={isStreaming || isDeleting}>×</button>
@@ -417,7 +417,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
         </section>
 
         {activeProject ? <section className={styles.conversationNavigation} aria-labelledby="conversations-title">
-          <div className={styles.railHeading}><h2 id="conversations-title">对话</h2><button className={styles.railAction} type="button" onClick={() => setIsConversationCreatorOpen(true)} aria-label="新建对话" title="新建对话" disabled={isStreaming || isCreatingConversation}>＋</button></div>
+          <div className={styles.railHeading}><h2 id="conversations-title">对话</h2><button className={`${styles.railAction} ${styles.createRailAction}`} type="button" onClick={() => setIsConversationCreatorOpen(true)} aria-label="新建对话" title="新建对话" disabled={isLoading || isStreaming || isCreatingConversation}>+</button></div>
           {isConversationCreatorOpen ? <form className={styles.conversationCreateForm} onSubmit={handleCreateConversation}>
             <label className={styles.srOnly} htmlFor="conversation-title">对话名称</label>
             <input ref={conversationTitleInputRef} id="conversation-title" value={newConversationTitle} onChange={(event) => setNewConversationTitle(event.target.value)} placeholder="输入对话名称" maxLength={160} required disabled={isCreatingConversation} />

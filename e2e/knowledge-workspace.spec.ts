@@ -168,7 +168,7 @@ test("用户可创建知识库、上传已索引资料、获得带引用回答�
   await expect(page.getByText("e2e-user")).toBeVisible();
 
   await page.getByPlaceholder("新建知识库").fill("测试知识库");
-  await page.getByRole("button", { name: "新建", exact: true }).click();
+  await page.getByRole("button", { name: "创建知识库" }).click();
   await expect(page.getByRole("heading", { name: "测试知识库" })).toBeVisible();
 
   await page.locator('input[type="file"]').setInputFiles({
