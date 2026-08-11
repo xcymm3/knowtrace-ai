@@ -1,4 +1,4 @@
-# KnowTrace API 契约（MVP）
+# KnowTrace API 契约
 
 接口根路径为 `/api/v1`。错误统一返回：
 

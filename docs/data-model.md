@@ -1,4 +1,4 @@
-# KnowTrace AI 数据模型（MVP）
+# KnowTrace AI 数据模型
 
 Supabase 是 KnowTrace 的身份认证与持久化层。浏览器使用 Publishable key 完成登录；FastAPI 验证用户 JWT 后，才通过 Service Role 访问业务表和私有 Storage。
 
@@ -22,7 +22,7 @@ erDiagram
 | `profiles` | 用户名与 Supabase 内部认证标识的受控映射；用户名唯一，并仅允许本人读取自己的 Profile。 |
 | `workspace_documents` | 已上传文件的元数据、Storage 路径、状态和解析错误摘要。 |
 | `document_chunks` | 文件切片、1536 维向量、全文检索向量和原文位置元数据。 |
-| `processing_tasks` | 解析和 Embedding 任务的进度、重试次数、输入输出摘要。 |
+| `processing_tasks` | 解析和 Embedding 任务的进度、重试次数、输入输出摘要与失败原因。 |
 | `conversations` | 工作区内可独立保存的对话标题与更新时间。 |
 | `conversation_messages` | 用户、助手或系统消息及会话内稳定顺序。 |
 | `message_citations` | 助手回答与资料切片之间的引用关系及受控摘录。 |
@@ -30,6 +30,8 @@ erDiagram
 ## 状态与边界
 
 - 文件状态：`PENDING → PROCESSING → PARSED → READY`，失败时为 `FAILED`。
+- 任务状态：`QUEUED → RUNNING → SUCCEEDED / FAILED / CANCELLED`；失败或取消后重新尝试会创建新任务，保留原任务记录供排查。
+- 删除文件前会删除对应 `message_citations`，随后通过外键级联清理 `document_chunks` 与 `processing_tasks`；Storage 中的原文件与派生文本同步移除。
 - 只有 `READY` 文件的 `document_chunks` 能参与检索。
 - 每个 Storage 路径以 `{workspace_id}/` 开头，防止跨工作区引用。
 - API 在每个工作区、文件、任务、会话与检索请求前校验 `owner_id`；匿名用户及其他用户均不可访问。
