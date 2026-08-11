@@ -210,9 +210,7 @@ function AuthForm() {
     <main className={styles.authShell}>
       <section className={styles.authCard} aria-labelledby="auth-title">
         <a className={styles.brand} href="#auth-title"><Image className={styles.brandMark} src="/knowtrace-mark.svg" width={48} height={48} alt="" priority />KnowTrace</a>
-        <p className={styles.eyebrow}>个人知识工作台</p>
         <h1 id="auth-title">{mode === "sign-in" ? "登录，继续追溯你的资料。" : "创建你的知识工作台。"}</h1>
-        <p className={styles.authDescription}>每个账号拥有独立的知识库、资料索引与对话记录。</p>
         <form className={styles.authForm} onSubmit={handleSubmit}>
           {mode === "sign-in" ? (
             <div className={styles.authField}>
