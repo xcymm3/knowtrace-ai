@@ -1,5 +1,7 @@
 import asyncio
 import json
+import subprocess
+import sys
 from copy import deepcopy
 from datetime import UTC, datetime
 from pathlib import Path
@@ -12,8 +14,9 @@ import pytest
 from app.api.auth import get_owned_workspace_id
 from app.api.v1.agent import get_agent_runs
 from app.core.errors import ApiError
+from app.features.agent.checks import load_commands
 from app.features.agent.edits import FileChanges
-from app.features.agent.executor import ExecutorClient, LocalRun, execute_local
+from app.features.agent.executor import ExecutorClient, LocalRun, execute_local, serve
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.runs import AgentRuns, Claim, Row
 from app.features.agent.runtime import Message, ToolCall
@@ -231,6 +234,193 @@ def test_resume_after_refresh_and_lost_write_responses(tmp_path: Path, store: Me
                 assert changes.writes == 1
 
     asyncio.run(test_flow())
+
+
+def test_worktree_runner_fixes_real_failure_across_code_config_and_docs(
+    tmp_path: Path, store: MemoryStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source"
+    source.mkdir()
+    state = tmp_path / "state"
+    monkeypatch.setenv("KNOWTRACE_AGENT_STATE_DIR", str(state))
+    monkeypatch.setenv("AGENT_API_KEY", "must-not-reach-checks")
+    files = {
+        "app.py": "def port():\n    return 8000\n",
+        "config.json": '{"port": 8000}\n',
+        "README.md": "Port: 8000\n",
+        "AGENTS.md": "Keep deployment files synchronized.\n",
+        "verify.py": (
+            "import json, os, pathlib, sys\n"
+            "from app import port\n"
+            "check = sys.argv[1]\n"
+            "assert 'AGENT_API_KEY' not in os.environ\n"
+            "if check == 'build':\n"
+            "    compile(pathlib.Path('app.py').read_text(), 'app.py', 'exec')\n"
+            "elif check == 'lint':\n"
+            "    for file in ('app.py', 'config.json', 'README.md'):\n"
+            "        assert all(line == line.rstrip() "
+            "for line in pathlib.Path(file).read_text().splitlines())\n"
+            "else:\n"
+            "    expected = json.loads(pathlib.Path('config.json').read_text())['port']\n"
+            "    assert 'Port: ' + str(expected) in pathlib.Path('README.md').read_text()\n"
+            "    if port() != expected:\n"
+            "        sys.exit(f'port mismatch: expected {expected}, got {port()}')\n"
+            "print(check + ' OK')\n"
+        ),
+    }
+    for name, text in files.items():
+        (source / name).write_bytes(text.encode())
+
+    def git(*args: str) -> bytes:
+        return subprocess.check_output(["git", "-C", str(source), *args], stderr=subprocess.PIPE)
+
+    git("init", "--quiet")
+    git("add", ".")
+    git(
+        "-c",
+        "user.name=Test",
+        "-c",
+        "user.email=test@example.test",
+        "commit",
+        "-m",
+        "test: 建立验证样例仓库",
+    )
+    (source / "app.py").write_bytes(b"private unstaged file\n")
+    (source / "config.json").write_bytes(b"private staged file\n")
+    git("add", "config.json")
+    (source / "local.txt").write_bytes(b"untracked\n")
+    original_status = git("status", "--porcelain")
+    original_index = git("diff", "--cached", "--binary")
+    manifest = tmp_path / "commands.json"
+    manifest.write_text(
+        json.dumps(
+            {
+                check: [sys.executable, "-B", "verify.py", check]
+                for check in ("build", "lint", "test")
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    class IteratingModel:
+        rounds = 0
+
+        async def complete(self, messages, tools, on_text):
+            self.rounds += 1
+            assert "Keep deployment files synchronized." in messages[0].content
+            turn = self.rounds
+            if turn == 1:
+                edits = [
+                    {"path": "app.py", "old_text": "8000", "new_text": "9001"},
+                    {"path": "config.json", "old_text": "8000", "new_text": "9000"},
+                    {"path": "README.md", "old_text": "8000", "new_text": "9000"},
+                ]
+                call = ToolCall("batch", "apply_patches", json.dumps({"edits": edits}))
+                return Message("assistant", "", (call,))
+            if turn == 2:
+                assert json.loads(messages[-1].content)["status"] == "applied"
+                return Message("assistant", "", (ToolCall("test", "run_check", '{"name":"test"}'),))
+            if turn == 3:
+                result = json.loads(messages[-1].content)
+                assert result["exit_code"] == 1
+                assert "port mismatch: expected 9000, got 9001" in result["output"]
+                patch = '{"path":"app.py","old_text":"9001","new_text":"9000"}'
+                return Message("assistant", "", (ToolCall("fix", "apply_patch", patch),))
+            if turn == 4:
+                calls = tuple(
+                    ToolCall(check, "run_check", json.dumps({"name": check}))
+                    for check in ("test", "build", "lint")
+                )
+                return Message("assistant", "", calls)
+            assert turn == 5
+            for message in messages[-3:]:
+                assert json.loads(message.content)["exit_code"] == 0
+            return Message("assistant", "代码、配置和文档的端口已统一为 9000。")
+
+    async def flow() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="https://api.test") as http:
+            run_id, executor_id = uuid4(), uuid4()
+            response = await http.post(
+                BASE,
+                json={
+                    "id": str(run_id),
+                    "executor_id": str(executor_id),
+                    "task": "将代码、配置和文档的端口统一为 9000，并验证。",
+                },
+            )
+            assert response.status_code == 201
+            remote = ExecutorClient(http, "https://api.test", WORKSPACE, "executor")
+            knowledge = KnowledgeClient(http, "https://api.test", WORKSPACE, "executor")
+            executor = asyncio.create_task(
+                serve(
+                    remote,
+                    executor_id,
+                    WorkspaceFiles(source),
+                    IteratingModel(),
+                    knowledge,
+                    12,
+                    load_commands(manifest),
+                )
+            )
+            approvals = []
+            try:
+                async with asyncio.timeout(15):
+                    while True:
+                        if executor.done():
+                            executor.result()
+                        row = (await http.get(f"{BASE}/{run_id}")).json()
+                        approval = row["approval"]
+                        if (
+                            approval
+                            and approval["status"] == "pending"
+                            and approval["id"] not in approvals
+                        ):
+                            approvals.append(approval["id"])
+                            if len(approvals) == 1:
+                                assert all(
+                                    f"+++ b/{name}" in approval["diff"]
+                                    for name in ("app.py", "config.json", "README.md")
+                                )
+                            else:
+                                assert "-    return 9001" in approval["diff"]
+                            confirmed = await http.post(
+                                f"{BASE}/{run_id}/decision",
+                                json={
+                                    "approval_id": approval["id"],
+                                    "approved": True,
+                                },
+                            )
+                            assert confirmed.status_code == 200
+                        if row["status"] in {"SUCCEEDED", "FAILED"}:
+                            break
+                        await asyncio.sleep(0.025)
+                assert row["status"] == "SUCCEEDED", row
+                assert len(approvals) == 2
+                assert any(
+                    "port mismatch: expected 9000, got 9001" in e["text"]
+                    for e in row["events"]
+                    if e["kind"] == "tool_error"
+                )
+                assert all(
+                    any(f"{check} · 退出码 0" in e["text"] for e in row["events"])
+                    for check in ("test", "build", "lint")
+                )
+                saved = store.get(WORKSPACE, run_id)
+                assert saved["approval_history"][0]["id"] == approvals[0]
+                worktree = state / "worktrees" / run_id.hex
+                for name in ("app.py", "config.json", "README.md"):
+                    assert "9000" in (worktree / name).read_text(encoding="utf-8")
+                assert not (worktree / "local.txt").exists()
+            finally:
+                executor.cancel()
+                await asyncio.gather(executor, return_exceptions=True)
+
+    asyncio.run(flow())
+    assert git("status", "--porcelain") == original_status
+    assert git("diff", "--cached", "--binary") == original_index
+    assert (source / "app.py").read_bytes() == b"private unstaged file\n"
+    assert (source / "local.txt").read_bytes() == b"untracked\n"
 
 
 @pytest.mark.parametrize("after_grant", [False, True])

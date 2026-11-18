@@ -95,6 +95,40 @@ uv run python -m app.features.agent --serve `
 执行器进程退出后，已领取的任务不会自动重新执行。重新启动时可以通过 `--executor-id` 复用原 ID，
 并从工作台取消尚未进入写入阶段的旧任务。
 
+### 隔离工作树和自动验证
+
+`--serve` 为每个 Web 任务创建独立的 Git 工作树。终端任务可用 `--worktree` 启用同样的隔离模式。
+两种模式的 `--root` 都指向 Git 仓库根目录。工作树以已提交的 `HEAD` 为基线，包含仓库中的
+`AGENTS.md`。暂存、未暂存和未跟踪的内容留在原目录。结果保留在终端打印的工作树中，供检查和接收。
+
+以本项目为例，在本机创建一份 JSON 清单，键是 Agent 可以请求的命令名，值是固定的参数数组。
+命令在隔离工作树根目录执行。Windows 下首项可用 `uv.exe`、`node.exe` 或其他可执行文件的全路径。
+
+```json
+{
+  "build": ["uv.exe", "run", "--project", "backend", "--locked", "python", "-m", "compileall", "-q", "backend/app"],
+  "lint": ["uv.exe", "run", "--project", "backend", "--locked", "ruff", "check", "backend"],
+  "test": ["uv.exe", "run", "--project", "backend", "--locked", "python", "-m", "pytest", "backend/tests"]
+}
+```
+
+```powershell
+Set-Location backend
+uv run python -m app.features.agent `
+  --worktree --root "D:\projects\example" --workspace-id "<知识库 UUID>" `
+  --commands "D:\projects\commands.json" `
+  "统一代码、配置和 README 中的启动端口，并执行验证。"
+```
+
+Web 执行器可在 `--serve` 命令后追加 `--commands`。Agent 只能请求清单中的名称，子进程会获得
+精简后的环境变量。命令按当前本机用户的权限执行，请授权可信的构建、Lint 和测试命令。
+工作树需要的依赖可由授权命令准备，例如在运行前端构建前按锁文件安装依赖。
+
+一批可预览并确认最多 8 个现有文本文件。每次批准写入后都要验证新版本，检查失败时真实退出码与日志
+会交给 Agent 继续修正。Web 执行记录保留每次检查结果和修改的回退 ID。批量回退时，`--root` 指向
+终端打印的工作树，使用对应批次的 `--undo` ID。
+部署 Web 多轮审批前需追加应用 [审批历史迁移](../supabase/migrations/20261118010000_preserve_agent_approval_history.sql)。
+
 ## 核心接口
 
 | 能力 | 接口 |

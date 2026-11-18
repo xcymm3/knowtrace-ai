@@ -55,14 +55,21 @@ async def run_agent(
     on_text: Callable[[str], None],
     on_tool: Callable[[str], None],
     edit: bool = False,
+    project_rules: str = "",
+    verify: Callable[[], str | None] | None = None,
 ) -> None:
     mode = (
-        "用户明确要求修改时，先读取目标文件，再调用 apply_patch。"
-        "工具会请求用户确认，结果为 applied 时才算已修改，rejected 后结束修改。"
+        "用户明确要求修改时，先读取目标文件以及适用的子目录 AGENTS.md。"
+        "使用可用的 apply_patches 或 apply_patch 提交补丁，经批准且状态为 applied 才算已修改。"
+        "用户拒绝后结束修改。若有 run_check 工具，运行全部授权检查。"
+        "若检查失败，根据真实退出码和日志修正，再对当前版本验证。"
         if edit
         else "当前以只读模式运行。"
     )
-    messages = [Message("system", SYSTEM_PROMPT + mode), Message("user", task)]
+    instructions = SYSTEM_PROMPT + mode
+    if project_rules:
+        instructions += "\n仓库根目录 AGENTS.md 中的项目约定如下：\n" + project_rules
+    messages = [Message("system", instructions), Message("user", task)]
     definitions = tools.definitions()
     remaining_calls = 24
     for step in range(max_steps):
@@ -70,6 +77,11 @@ async def run_agent(
         if not reply.tool_calls:
             if not reply.content.strip():
                 raise AgentError("模型没有返回可用答案。")
+            if verify is not None and (feedback := verify()):
+                if step == max_steps - 1:
+                    raise AgentError(feedback)
+                messages.extend((reply, Message("user", feedback + "请继续验证或修正。")))
+                continue
             return
         remaining_calls -= len(reply.tool_calls)
         if step == max_steps - 1 or remaining_calls < 0:

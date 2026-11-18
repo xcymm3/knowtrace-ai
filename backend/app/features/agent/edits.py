@@ -4,7 +4,7 @@ import sqlite3
 import stat
 from bisect import bisect_left
 from codecs import BOM_UTF8
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from difflib import unified_diff
@@ -89,6 +89,10 @@ class PreparedEdit:
     diff: str
 
 
+class IncompleteRestore(ValueError):
+    pass
+
+
 class FileChanges:
     def __init__(self, files: WorkspaceFiles, journal: Path) -> None:
         self.files = files
@@ -105,6 +109,13 @@ class FileChanges:
                         """CREATE TABLE IF NOT EXISTS changes (
                             id TEXT PRIMARY KEY, root TEXT NOT NULL, path TEXT NOT NULL,
                             before_data BLOB NOT NULL, after_hash TEXT NOT NULL
+                        )"""
+                    )
+                    db.execute(
+                        """CREATE TABLE IF NOT EXISTS change_parts (
+                            id TEXT NOT NULL, root TEXT NOT NULL, path TEXT NOT NULL,
+                            before_data BLOB NOT NULL, after_hash TEXT NOT NULL,
+                            PRIMARY KEY (id, path)
                         )"""
                     )
                 yield db
@@ -147,6 +158,12 @@ class FileChanges:
         data = _changed_bytes(original, old_text, new_text)
         return PreparedEdit(relative, original, data, _preview(relative, original.data, data))
 
+    def prepare_many(self, edits: list[dict[str, str]]) -> tuple[PreparedEdit, ...]:
+        prepared = tuple(self.prepare(**edit) for edit in edits)
+        if not prepared or len({edit.original.path for edit in prepared}) != len(prepared):
+            raise ValueError("每个补丁批次须包含文件，每个文件只能出现一次。")
+        return prepared
+
     def apply(
         self, path: str, old_text: str, new_text: str, confirm: Callable[[str], bool]
     ) -> dict[str, str]:
@@ -156,43 +173,98 @@ class FileChanges:
         return self.commit(prepared)
 
     def commit(self, prepared: PreparedEdit) -> dict[str, str]:
-        relative, original, data = prepared.path, prepared.original, prepared.data
-        self._check_version(relative, original)
+        return {
+            "status": "applied",
+            "path": prepared.path,
+            "change_id": self.commit_many((prepared,)),
+        }
+
+    def _replace_all(self, edits: Sequence[PreparedEdit]) -> None:
+        for edit in edits:
+            self._check_version(edit.path, edit.original)
+        applied: list[PreparedEdit] = []
+        try:
+            for edit in edits:
+                self._replace(edit.path, edit.original, edit.data)
+                applied.append(edit)
+        except (OSError, ValueError) as error:
+            restore_failed = []
+            for edit in reversed(applied):
+                try:
+                    changed = TextFile(edit.original.path, edit.data, "")
+                    self._replace(edit.path, changed, edit.original.data)
+                except (OSError, ValueError):
+                    restore_failed.append(edit.path)
+            if restore_failed:
+                raise IncompleteRestore(
+                    f"部分文件在失败后未能还原：{', '.join(restore_failed)}"
+                ) from error
+            raise
+
+    def commit_many(self, prepared: Sequence[PreparedEdit]) -> str:
+        for edit in prepared:
+            self._check_version(edit.path, edit.original)
         change_id = uuid4().hex
         with self._connect() as db:
             # Persist the original bytes before replacing the working file.
             with db:
-                db.execute(
-                    "INSERT INTO changes VALUES (?, ?, ?, ?, ?)",
-                    (change_id, self._root_key, relative, original.data, sha256(data).hexdigest()),
+                db.executemany(
+                    "INSERT INTO change_parts VALUES (?, ?, ?, ?, ?)",
+                    [
+                        (
+                            change_id,
+                            self._root_key,
+                            edit.path,
+                            edit.original.data,
+                            sha256(edit.data).hexdigest(),
+                        )
+                        for edit in prepared
+                    ],
                 )
             try:
                 with db:
                     db.execute("BEGIN IMMEDIATE")
-                    self._replace(relative, original, data)
+                    self._replace_all(prepared)
+            except IncompleteRestore as error:
+                raise ValueError(f"{error}。原始内容已保存，记录 ID {change_id}。") from error
             except (OSError, ValueError):
                 with db:
-                    db.execute("DELETE FROM changes WHERE id = ?", (change_id,))
+                    db.execute("DELETE FROM change_parts WHERE id = ?", (change_id,))
                 raise
-        return {"status": "applied", "path": relative, "change_id": change_id}
+        return change_id
 
     def undo(self, change_id: UUID, confirm: Callable[[str], bool]) -> bool:
         if not self._journal.is_file():
             raise ValueError("当前目录没有对应的回退记录。")
         with self._connect() as db:
-            row = db.execute(
-                "SELECT path, before_data, after_hash FROM changes WHERE id = ? AND root = ?",
-                (change_id.hex, self._root_key),
-            ).fetchone()
-            if row is None:
+            rows = (
+                db.execute(
+                    "SELECT path, before_data, after_hash FROM change_parts "
+                    "WHERE id = ? AND root = ?",
+                    (change_id.hex, self._root_key),
+                ).fetchall()
+                or db.execute(
+                    "SELECT path, before_data, after_hash FROM changes WHERE id = ? AND root = ?",
+                    (change_id.hex, self._root_key),
+                ).fetchall()
+            )
+            if not rows:
                 raise ValueError("当前目录没有对应的回退记录。")
-            path, original, after_hash = row
-            current = self.files.read_text_file(path)
-            if sha256(current.data).hexdigest() != after_hash:
-                raise ValueError("文件当前版本与该次 Agent 修改不一致，无法回退。")
-            if not confirm(_preview(path, current.data, original)):
+            prepared = []
+            for path, original, after_hash in rows:
+                current = self.files.read_text_file(path)
+                if current.data == original:
+                    continue
+                if sha256(current.data).hexdigest() != after_hash:
+                    raise ValueError(f"{path} 当前版本与该次 Agent 修改不一致，无法回退。")
+                prepared.append(
+                    PreparedEdit(path, current, original, _preview(path, current.data, original))
+                )
+            if not prepared:
+                raise ValueError("这些文件已经是修改前的版本。")
+            if not confirm("".join(edit.diff for edit in prepared)):
                 return False
             with db:
                 db.execute("BEGIN IMMEDIATE")
-                self._replace(path, current, original)
+                self._replace_all(prepared)
         return True

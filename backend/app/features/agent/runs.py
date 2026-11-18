@@ -12,6 +12,7 @@ RunStatus = Literal[
 ]
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 MAX_DIFF = 150_000
+MAX_APPROVALS = 6
 
 
 class RunCreate(BaseModel):
@@ -210,9 +211,17 @@ class AgentRuns:
         approval = row["approval"]
         if isinstance(op, ReportEvent) and status == "RUNNING":
             return {"events": [*row["events"], op.event.model_dump()][-100:]}
-        if isinstance(op, Preview) and status == "RUNNING" and approval is None:
+        if isinstance(op, Preview) and status == "RUNNING":
+            history = row.get("approval_history", [])
+            if approval is not None:
+                if approval["status"] not in {"applied", "failed"}:
+                    raise _conflict("上一轮审批未完成或用户已拒绝修改。")
+                if len(history) + 1 >= MAX_APPROVALS:
+                    raise _conflict("该任务已达到审批轮数上限。")
+                history = [*history, approval]
             pending = Approval(id=op.approval_id, path=op.path, diff=op.diff, status="pending")
-            return {"status": "WAITING_APPROVAL", "approval": pending.model_dump(mode="json")}
+            fields = {"status": "WAITING_APPROVAL", "approval": pending.model_dump(mode="json")}
+            return {**fields, "approval_history": history} if history else fields
         if (
             isinstance(op, (BeginWrite, FinishWrite))
             and approval

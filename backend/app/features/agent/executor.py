@@ -7,10 +7,13 @@ from uuid import UUID, uuid4
 import httpx
 from pydantic import ValidationError
 
-from app.features.agent.edits import FileChanges
-from app.features.agent.runs import MAX_DIFF, RunSnapshot
+from app.features.agent.checks import CommandMap, Verification
+from app.features.agent.edits import FileChanges, PreparedEdit, journal_path
+from app.features.agent.files import WorkspaceFiles
+from app.features.agent.runs import MAX_APPROVALS, MAX_DIFF, RunSnapshot
 from app.features.agent.runtime import AgentError, ChatModel, Message, ToolCall, run_agent
 from app.features.agent.tools import KnowledgeClient, WorkspaceTools
+from app.features.agent.worktree import create_worktree, project_rules
 
 
 class RunCancelled(AgentError):
@@ -81,7 +84,8 @@ class LocalRun:
         self.id = run.id
         self.claim_id = claim_id
         self.changes = changes
-        self.proposed = False
+        self.approvals = 0
+        self.rejected = False
 
     async def update(self, action: str, **data: Any) -> RunSnapshot:
         snapshot = await self.client.operation(self.id, self.claim_id, action, **data)
@@ -93,23 +97,30 @@ class LocalRun:
         await self.update("event", event={"kind": kind, "text": text[:16_000]})
 
     async def apply_patch(self, path: str, old_text: str, new_text: str) -> dict[str, str]:
-        if self.proposed:
-            return {"status": "rejected", "path": path, "error": "本次任务已提交过单文件审批。"}
         prepared = await asyncio.to_thread(self.changes.prepare, path, old_text, new_text)
-        if len(prepared.diff) > MAX_DIFF:
+        return await self._apply((prepared,), path)
+
+    async def apply_patches(self, edits: list[dict[str, str]]) -> dict[str, Any]:
+        prepared = await asyncio.to_thread(self.changes.prepare_many, edits)
+        return await self._apply(prepared, f"{len(prepared)} 个文件")
+
+    async def _apply(self, prepared: tuple[PreparedEdit, ...], label: str) -> dict[str, str]:
+        if self.rejected or self.approvals >= MAX_APPROVALS:
+            raise ValueError("用户已拒绝修改，或任务已达到审批轮数上限。")
+        diff = "".join(edit.diff for edit in prepared)
+        if len(diff) > MAX_DIFF:
             raise ValueError("diff 超过 Web 审批上限，请缩小修改范围。")
         approval_id = str(uuid4())
-        snapshot = await self.update(
-            "preview", approval_id=approval_id, path=prepared.path, diff=prepared.diff
-        )
-        self.proposed = True
+        snapshot = await self.update("preview", approval_id=approval_id, path=label, diff=diff)
+        self.approvals += 1
         while snapshot.approval is not None and snapshot.approval.status == "pending":
             await asyncio.sleep(1)
             snapshot = await self.client.get(self.id)
         if snapshot.status == "CANCELLED":
             raise RunCancelled("任务已取消。")
         if snapshot.approval is None or snapshot.approval.status != "approved":
-            return {"status": "rejected", "path": prepared.path}
+            self.rejected = True
+            return {"status": "rejected", "path": label}
 
         grant = await self.update("begin_write", approval_id=approval_id)
         if (
@@ -122,7 +133,11 @@ class LocalRun:
             await self.update("finish_write", approval_id=approval_id, error="写入前已取消。")
             raise RunCancelled("任务已取消。")
         try:
-            result = await asyncio.to_thread(self.changes.commit, prepared)
+            if len(prepared) == 1:
+                result = await asyncio.to_thread(self.changes.commit, prepared[0])
+            else:
+                change_id = await asyncio.to_thread(self.changes.commit_many, prepared)
+                result = {"status": "applied", "path": label, "change_id": change_id}
         except (OSError, ValueError) as error:
             message = str(error) if isinstance(error, ValueError) else "本地写入失败。"
             await self.update("finish_write", approval_id=approval_id, error=message[:500])
@@ -158,9 +173,17 @@ class ReportedTools:
         name = tool_call.name[:80]
         await self.run.event("tool_start", name)
         result = await self.tools.call(tool_call)
-        error = json.loads(result).get("error")
+        payload = json.loads(result)
+        error = payload.get("error")
         if error:
             await self.run.event("tool_error", f"{name} · {error}")
+        elif name == "run_check":
+            code = payload["exit_code"]
+            outcome = "超时" if payload.get("timed_out") else f"退出码 {code}"
+            detail = f"{payload['name']} · {outcome}\n{payload['output']}"
+            await self.run.event("tool_end" if code == 0 else "tool_error", detail)
+        elif payload.get("change_id"):
+            await self.run.event("tool_end", f"{name} · 回退 ID {payload['change_id']}")
         else:
             await self.run.event("tool_end", name)
         return result
@@ -174,7 +197,12 @@ async def _watch_cancellation(run: LocalRun) -> None:
 
 
 async def execute_local(
-    run: LocalRun, model: ChatModel, tools: WorkspaceTools, task: str, max_steps: int
+    run: LocalRun,
+    model: ChatModel,
+    tools: WorkspaceTools,
+    task: str,
+    max_steps: int,
+    rules: str = "",
 ) -> None:
     async def work() -> None:
         await run_agent(
@@ -185,6 +213,8 @@ async def execute_local(
             on_text=lambda _: None,
             on_tool=lambda _: None,
             edit=True,
+            project_rules=rules,
+            verify=tools.verification.feedback if tools.verification else None,
         )
         if tools.sources:
             sources = "\n".join(
@@ -218,10 +248,11 @@ async def execute_local(
 async def serve(
     remote: ExecutorClient,
     executor_id: UUID,
-    changes: FileChanges,
+    source: WorkspaceFiles,
     model: ChatModel,
     knowledge: KnowledgeClient,
     max_steps: int,
+    commands: CommandMap,
 ) -> None:
     print(f"本地执行器 ID：{executor_id}", flush=True)
     while True:
@@ -232,6 +263,29 @@ async def serve(
             continue
         if snapshot.status == "RUNNING":
             print(f"已领取 Agent 任务 {snapshot.id}", flush=True)
+            journal = journal_path()
+            try:
+                worktree = await asyncio.to_thread(
+                    create_worktree, source, journal.parent, snapshot.id
+                )
+                rules = project_rules(worktree.files)
+            except (AgentError, OSError, ValueError) as error:
+                await remote.operation(snapshot.id, claim_id, "finish", error=str(error)[:500])
+                continue
+            print(f"隔离工作树：{worktree.files.root}", flush=True)
+            changes = FileChanges(worktree.files, journal)
             run = LocalRun(remote, snapshot, claim_id, changes)
-            tools = WorkspaceTools(knowledge, changes.files, run.apply_patch)
-            await execute_local(run, model, tools, snapshot.task, max_steps)
+            tools = WorkspaceTools(
+                knowledge,
+                changes.files,
+                run.apply_patch,
+                apply_patches=run.apply_patches,
+                verification=Verification(worktree.files.root, commands),
+            )
+            try:
+                await run.event(
+                    "message", f"工作树 {snapshot.id.hex} · 基线 {worktree.base_commit}"
+                )
+                await execute_local(run, model, tools, snapshot.task, max_steps, rules)
+            except RunCancelled:
+                pass

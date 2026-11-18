@@ -7,6 +7,7 @@ from uuid import UUID
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
+from app.features.agent.checks import Verification
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.runtime import AgentError, ToolCall
 from app.features.knowledge.schemas import KnowledgeSearchHit, KnowledgeSearchResponse
@@ -45,6 +46,14 @@ class _FilePatch(_Arguments):
     new_text: Annotated[str, StringConstraints(strip_whitespace=False, max_length=32768)] = Field(
         description="替换文本，保留必要的空格和换行"
     )
+
+
+class _BatchPatch(_Arguments):
+    edits: list[_FilePatch] = Field(min_length=1, max_length=8)
+
+
+class _Check(_Arguments):
+    name: str = Field(min_length=1, max_length=40)
 
 
 _TOOLS = {
@@ -87,6 +96,7 @@ class KnowledgeClient:
 
 
 PatchTool = Callable[..., Awaitable[dict[str, str]]]
+BatchTool = Callable[[list[dict[str, str]]], Awaitable[dict[str, Any]]]
 
 
 class WorkspaceTools:
@@ -95,9 +105,14 @@ class WorkspaceTools:
         knowledge: KnowledgeClient,
         files: WorkspaceFiles,
         apply_patch: PatchTool | None = None,
+        *,
+        apply_patches: BatchTool | None = None,
+        verification: Verification | None = None,
     ) -> None:
         self._knowledge = knowledge
         self._apply_patch = apply_patch
+        self._apply_patches = apply_patches
+        self.verification = verification
         self._definitions = _TOOLS.copy()
         self._file_actions = {
             "list_files": files.list_files,
@@ -108,6 +123,17 @@ class WorkspaceTools:
             self._definitions["apply_patch"] = (
                 _FilePatch,
                 "预览单个现有文本文件的替换 diff。仅在用户确认后写入并返回回退 ID。",
+            )
+        if apply_patches is not None:
+            self._definitions["apply_patches"] = (
+                _BatchPatch,
+                "提出一批相关文件的 diff，每个现有文本文件可提供一处唯一的原文替换。",
+            )
+        if verification and verification.commands:
+            names = ", ".join(verification.commands)
+            self._definitions["run_check"] = (
+                _Check,
+                f"在隔离工作树内运行已授权的命令，并返回退出码和日志。可选名称：{names}。",
             )
         self.sources: dict[UUID, tuple[str, KnowledgeSearchHit]] = {}
 
@@ -153,6 +179,10 @@ class WorkspaceTools:
             try:
                 if tool_call.name == "apply_patch" and self._apply_patch is not None:
                     result = await self._apply_patch(**arguments)
+                elif tool_call.name == "apply_patches" and self._apply_patches is not None:
+                    result = await self._apply_patches(arguments["edits"])
+                elif tool_call.name == "run_check" and self.verification is not None:
+                    result = await self.verification.run(arguments["name"])
                 else:
                     result = await asyncio.to_thread(
                         self._file_actions[tool_call.name], **arguments
@@ -163,4 +193,10 @@ class WorkspaceTools:
                 result = {"error": "无法访问指定的本地路径。"}
             except ValueError as error:
                 result = {"error": str(error)}
+        if (
+            self.verification is not None
+            and tool_call.name in {"apply_patch", "apply_patches"}
+            and result.get("status") != "rejected"
+        ):
+            self.verification.invalidate()
         return json.dumps(result, ensure_ascii=False)
