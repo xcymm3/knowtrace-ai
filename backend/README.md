@@ -84,6 +84,10 @@ Agent 的历史和审批保存在本机自动初始化的 SQLite，知识库和�
 启动前可选设 `LOCAL_AGENT_ROOT` 指定另一个 Git 仓库，或设 `LOCAL_AGENT_COMMANDS` 指定验证命令清单。
 如需本机模型档案，可同时设置 `LOCAL_AGENT_MODEL_CONFIG` 和 `LOCAL_AGENT_PROFILE`。
 
+在任务框输入「在桌面新建一个 123.txt」，内置执行器会定位当前系统用户的桌面并显示新建空文件的预览。
+确认后执行一次独占创建，遇到同名文件会保留原文件。该操作直接使用本地文件系统，无需模型 API。
+如需回退，用本地 CLI 指定桌面目录为 `--root`，并传入执行记录中的 `--undo` ID。回退前会核对文件版本并要求确认。
+
 #### 托管模式
 
 先应用 [Agent 任务迁移](../supabase/migrations/20261118000000_create_agent_runs.sql)，并部署包含 Agent

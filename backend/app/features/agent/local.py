@@ -11,7 +11,9 @@ from app.core.config import Settings
 from app.core.errors import ApiError
 from app.features.agent.checks import load_commands
 from app.features.agent.cli import CliSettings
-from app.features.agent.executor import run_claimed
+from app.features.agent.desktop import desktop_directory, desktop_file_request
+from app.features.agent.edits import FileChanges, journal_path
+from app.features.agent.executor import LocalRun, RunCancelled, run_claimed
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.local_store import LOCAL_EXECUTOR_ID, LocalRunStore
 from app.features.agent.model import ChatCompletionsModel
@@ -91,6 +93,12 @@ async def serve_local(settings: Settings, runs: AgentRuns) -> None:
             controller = LocalRunController(runs, workspace)
             snapshot = RunSnapshot.model_validate(row)
             try:
+                if (name := desktop_file_request(snapshot.task)) is not None:
+                    changes = FileChanges(WorkspaceFiles(desktop_directory()), journal_path())
+                    await LocalRun(controller, snapshot, claim_id, changes).create_desktop_file(
+                        name
+                    )
+                    continue
                 source = WorkspaceFiles(settings.local_agent_root)
                 model = local_model(settings, client)
                 commands = load_commands(settings.local_agent_commands)
@@ -104,6 +112,8 @@ async def serve_local(settings: Settings, runs: AgentRuns) -> None:
                     16,
                     commands,
                 )
+            except RunCancelled:
+                continue
             except Exception as error:
                 if isinstance(error, (AgentError, ApiError, OSError, ValueError)):
                     message = str(error)[:500]
@@ -117,7 +127,7 @@ async def serve_local(settings: Settings, runs: AgentRuns) -> None:
                         claim_id,
                         "finish_write",
                         approval_id=current.approval.id,
-                        error="本地执行中断，请检查工作树。",
+                        error="本地执行中断，请检查目标文件。",
                     )
                 if current.status not in TERMINAL:
                     await controller.operation(snapshot.id, claim_id, "finish", error=message)

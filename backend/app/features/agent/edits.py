@@ -118,6 +118,13 @@ class FileChanges:
                             PRIMARY KEY (id, path)
                         )"""
                     )
+                    db.execute(
+                        """CREATE TABLE IF NOT EXISTS created_files (
+                            id TEXT PRIMARY KEY, root TEXT NOT NULL, path TEXT NOT NULL,
+                            device TEXT NOT NULL, inode TEXT NOT NULL, created_ns INTEGER NOT NULL,
+                            modified_ns INTEGER NOT NULL
+                        )"""
+                    )
                 yield db
         except sqlite3.Error as error:
             raise ValueError("无法读取或保存本地回退记录。") from error
@@ -183,6 +190,67 @@ class FileChanges:
             "path": prepared.path,
             "change_id": self.commit_many((prepared,)),
         }
+
+    def preview_create(self, name: str) -> str:
+        path = self.files.direct_file_path(name)
+        if os.path.lexists(path):
+            raise ValueError(f"{name} 已存在，已保留原文件。")
+        return f"--- /dev/null\n+++ b/{name}\n新建空文件（0 字节）\n"
+
+    def create_empty(self, name: str) -> dict[str, str]:
+        change_id = uuid4().hex
+        path = self.files.direct_file_path(name)
+        with self._connect() as db:
+            info = None
+            try:
+                with db:
+                    db.execute("BEGIN IMMEDIATE")
+                    path = self.files.direct_file_path(name)
+                    try:
+                        with path.open("xb") as file:
+                            info = os.fstat(file.fileno())
+                    except FileExistsError as error:
+                        raise ValueError(f"审批后检测到 {name} 已存在，已保留原文件。") from error
+                    db.execute(
+                        "INSERT INTO created_files VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (change_id, self._root_key, name, *_file_version(info)),
+                    )
+            except (sqlite3.Error, OSError, ValueError):
+                if info is not None and self._is_created_file(name, _file_version(info)):
+                    path.unlink(missing_ok=True)
+                raise
+        return {"status": "applied", "path": name, "change_id": change_id}
+
+    def _is_created_file(self, name: str, version: tuple[str, str, int, int]) -> bool:
+        try:
+            info = self.files.direct_file_path(name).lstat()
+        except FileNotFoundError:
+            return False
+        return stat.S_ISREG(info.st_mode) and info.st_size == 0 and _file_version(info) == version
+
+    def _undo_created_file(
+        self, db: sqlite3.Connection, change_id: UUID, confirm: Callable[[str], bool]
+    ) -> bool:
+        row = db.execute(
+            "SELECT path, device, inode, created_ns, modified_ns FROM created_files "
+            "WHERE id = ? AND root = ?",
+            (change_id.hex, self._root_key),
+        ).fetchone()
+        if row is None:
+            raise ValueError("当前目录没有对应的回退记录。")
+        name, device, inode, created, modified = row
+        version = (device, inode, created, modified)
+        changed = f"{name} 已修改、替换或删除，无法回退。"
+        if not self._is_created_file(name, version):
+            raise ValueError(changed)
+        if not confirm(f"--- a/{name}\n+++ /dev/null\n删除由 Agent 新建的空文件\n"):
+            return False
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            if not self._is_created_file(name, version):
+                raise ValueError(changed)
+            self.files.direct_file_path(name).unlink()
+        return True
 
     def _replace_all(self, edits: Sequence[PreparedEdit]) -> None:
         for edit in edits:
@@ -254,7 +322,7 @@ class FileChanges:
                 ).fetchall()
             )
             if not rows:
-                raise ValueError("当前目录没有对应的回退记录。")
+                return self._undo_created_file(db, change_id, confirm)
             prepared = []
             for path, original, after_hash in rows:
                 current = self.files.read_text_file(path)
@@ -273,3 +341,7 @@ class FileChanges:
                 db.execute("BEGIN IMMEDIATE")
                 self._replace_all(prepared)
         return True
+
+
+def _file_version(info: os.stat_result) -> tuple[str, str, int, int]:
+    return str(info.st_dev), str(info.st_ino), info.st_ctime_ns, info.st_mtime_ns

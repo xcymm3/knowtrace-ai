@@ -111,6 +111,11 @@ class WorkspaceFiles:
                 if self._scannable(file, stat.S_ISREG):
                     yield file.relative_to(self.root)
 
+    def direct_file_path(self, name: str) -> Path:
+        if _path_parts(name) != (name,):
+            raise ValueError("请只填写文件名，文件须直接位于授权目录中。")
+        return self._target(".", directory=True) / name
+
     @staticmethod
     def _scannable(path: Path, type_check: Callable[[int], bool]) -> bool:
         try:

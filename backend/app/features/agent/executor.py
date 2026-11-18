@@ -8,7 +8,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.features.agent.checks import CommandMap, Verification
-from app.features.agent.edits import FileChanges, PreparedEdit, journal_path
+from app.features.agent.edits import FileChanges, journal_path
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.runs import MAX_APPROVALS, MAX_DIFF, RunSnapshot
 from app.features.agent.runtime import AgentError, ChatModel, Message, ToolCall, run_agent
@@ -105,16 +105,40 @@ class LocalRun:
 
     async def apply_patch(self, path: str, old_text: str, new_text: str) -> dict[str, str]:
         prepared = await asyncio.to_thread(self.changes.prepare, path, old_text, new_text)
-        return await self._apply((prepared,), path)
+        return await self._apply(prepared.diff, path, lambda: self.changes.commit(prepared))
 
     async def apply_patches(self, edits: list[dict[str, str]]) -> dict[str, Any]:
         prepared = await asyncio.to_thread(self.changes.prepare_many, edits)
-        return await self._apply(prepared, f"{len(prepared)} 个文件")
+        label = f"{len(prepared)} 个文件"
 
-    async def _apply(self, prepared: tuple[PreparedEdit, ...], label: str) -> dict[str, str]:
+        def commit() -> dict[str, str]:
+            if len(prepared) == 1:
+                return self.changes.commit(prepared[0])
+            change_id = self.changes.commit_many(prepared)
+            return {"status": "applied", "path": label, "change_id": change_id}
+
+        return await self._apply("".join(edit.diff for edit in prepared), label, commit)
+
+    async def create_desktop_file(self, name: str) -> None:
+        label = f"桌面/{name}"
+        await self.event("tool_start", f"create_file · {label}")
+        diff = await asyncio.to_thread(self.changes.preview_create, name)
+        result = await self._apply(diff, label, lambda: self.changes.create_empty(name))
+        if error := result.get("error"):
+            await self.update("finish", error=error[:500])
+            return
+        if result["status"] == "rejected":
+            await self.event("message", f"已拒绝创建 {label}。")
+        else:
+            await self.event("tool_end", f"create_file · {label} · 回退 ID {result['change_id']}")
+            await self.event("message", f"已创建 {label}（0 字节）。")
+        await self.update("finish")
+
+    async def _apply(
+        self, diff: str, label: str, commit: Callable[[], dict[str, str]]
+    ) -> dict[str, str]:
         if self.rejected or self.approvals >= MAX_APPROVALS:
             raise ValueError("用户已拒绝修改，或任务已达到审批轮数上限。")
-        diff = "".join(edit.diff for edit in prepared)
         if len(diff) > MAX_DIFF:
             raise ValueError("diff 超过 Web 审批上限，请缩小修改范围。")
         approval_id = str(uuid4())
@@ -140,13 +164,12 @@ class LocalRun:
             await self.update("finish_write", approval_id=approval_id, error="写入前已取消。")
             raise RunCancelled("任务已取消。")
         try:
-            if len(prepared) == 1:
-                result = await asyncio.to_thread(self.changes.commit, prepared[0])
-            else:
-                change_id = await asyncio.to_thread(self.changes.commit_many, prepared)
-                result = {"status": "applied", "path": label, "change_id": change_id}
+            result = await asyncio.to_thread(commit)
         except (OSError, ValueError) as error:
-            message = str(error) if isinstance(error, ValueError) else "本地写入失败。"
+            if isinstance(error, PermissionError):
+                message = "系统拒绝写入目标目录，请检查该目录的写入权限。"
+            else:
+                message = str(error) if isinstance(error, ValueError) else "本地写入失败。"
             await self.update("finish_write", approval_id=approval_id, error=message[:500])
             return {"error": message}
         # Retries start inside the HTTP operation, after the local commit has returned.
