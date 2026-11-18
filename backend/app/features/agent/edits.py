@@ -6,6 +6,7 @@ from bisect import bisect_left
 from codecs import BOM_UTF8
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
+from dataclasses import dataclass
 from difflib import unified_diff
 from hashlib import sha256
 from io import StringIO
@@ -80,9 +81,17 @@ def _preview(path: str, before: bytes, after: bytes) -> str:
     return "".join(lines)
 
 
+@dataclass(frozen=True)
+class PreparedEdit:
+    path: str
+    original: TextFile
+    data: bytes
+    diff: str
+
+
 class FileChanges:
     def __init__(self, files: WorkspaceFiles, journal: Path) -> None:
-        self._files = files
+        self.files = files
         self._journal = journal
         self._root_key = os.path.normcase(str(files.root))
 
@@ -104,7 +113,7 @@ class FileChanges:
 
     def _check_version(self, path: str, expected: TextFile) -> None:
         try:
-            current = self._files.read_text_file(path)
+            current = self.files.read_text_file(path)
         except (OSError, ValueError) as error:
             raise ValueError("文件在预览后已变化或无法访问，操作已取消。") from error
         if current.path != expected.path or current.data != expected.data:
@@ -132,15 +141,22 @@ class FileChanges:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
+    def prepare(self, path: str, old_text: str, new_text: str) -> PreparedEdit:
+        original = self.files.read_text_file(path)
+        relative = original.path.relative_to(self.files.root).as_posix()
+        data = _changed_bytes(original, old_text, new_text)
+        return PreparedEdit(relative, original, data, _preview(relative, original.data, data))
+
     def apply(
         self, path: str, old_text: str, new_text: str, confirm: Callable[[str], bool]
     ) -> dict[str, str]:
-        original = self._files.read_text_file(path)
-        relative = original.path.relative_to(self._files.root).as_posix()
-        data = _changed_bytes(original, old_text, new_text)
-        if not confirm(_preview(relative, original.data, data)):
-            return {"status": "rejected", "path": relative}
+        prepared = self.prepare(path, old_text, new_text)
+        if not confirm(prepared.diff):
+            return {"status": "rejected", "path": prepared.path}
+        return self.commit(prepared)
 
+    def commit(self, prepared: PreparedEdit) -> dict[str, str]:
+        relative, original, data = prepared.path, prepared.original, prepared.data
         self._check_version(relative, original)
         change_id = uuid4().hex
         with self._connect() as db:
@@ -171,7 +187,7 @@ class FileChanges:
             if row is None:
                 raise ValueError("当前目录没有对应的回退记录。")
             path, original, after_hash = row
-            current = self._files.read_text_file(path)
+            current = self.files.read_text_file(path)
             if sha256(current.data).hexdigest() != after_hash:
                 raise ValueError("文件当前版本与该次 Agent 修改不一致，无法回退。")
             if not confirm(_preview(path, current.data, original)):

@@ -100,6 +100,30 @@ export interface UsernameAvailability {
   available: boolean;
 }
 
+export type AgentRunStatus = TaskStatus | "WAITING_APPROVAL" | "APPLYING";
+
+export interface AgentRunSummary {
+  id: string;
+  executor_id: string;
+  task: string;
+  status: AgentRunStatus;
+  revision: number;
+  created_at: string;
+}
+
+export interface AgentRunSnapshot extends AgentRunSummary {
+  cancel_requested: boolean;
+  approval: {
+    id: string;
+    path: string;
+    diff: string;
+    status: "pending" | "approved" | "rejected" | "applying" | "applied" | "failed" | "cancelled";
+    change_id: string | null;
+    error: string | null;
+  } | null;
+  events: { kind: "tool_start" | "tool_end" | "tool_error" | "message" | "error"; text: string }[];
+}
+
 type RagStreamEvent =
   | { event: "retrieval"; data: { conversation_id: string; sources: RagSource[] } }
   | { event: "token"; data: { delta: string } }
@@ -186,7 +210,7 @@ async function checkUsernameAvailability(username: string): Promise<UsernameAvai
   return response.json() as Promise<UsernameAvailability>;
 }
 
-function parseSseBlock(block: string): RagStreamEvent | null {
+function parseSseBlock(block: string): { event: string; data: unknown } | null {
   const event = block.match(/^event:\s*(.+)$/m)?.[1];
   const data = block
     .split(/\r?\n/)
@@ -194,7 +218,52 @@ function parseSseBlock(block: string): RagStreamEvent | null {
     .map((line) => line.slice(5).trimStart())
     .join("\n");
   if (!event || !data) return null;
-  return { event, data: JSON.parse(data) } as RagStreamEvent;
+  return { event, data: JSON.parse(data) };
+}
+
+async function readSse(response: Response, onFrame: (frame: NonNullable<ReturnType<typeof parseSseBlock>>) => void) {
+  if (!response.body) throw new ApiError("服务未返回可读取的事件流。");
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const blocks = buffer.split(/\r?\n\r?\n/);
+      buffer = blocks.pop() ?? "";
+      for (const block of blocks) {
+        const frame = parseSseBlock(block);
+        if (frame) onFrame(frame);
+      }
+      if (done) break;
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+function agentPath(workspaceId: string, runId?: string) {
+  const root = `/api/v1/workspaces/${workspaceId}/agent/runs`;
+  return runId ? `${root}/${runId}` : root;
+}
+
+async function streamAgentRun(
+  workspaceId: string, runId: string, after: number,
+  onSnapshot: (snapshot: AgentRunSnapshot) => void, signal: AbortSignal,
+) {
+  const accessToken = await getAccessToken();
+  if (!accessToken) throw new ApiError("登录已失效，请重新登录。", "AUTHENTICATION_REQUIRED");
+  const response = await fetch(`${agentPath(workspaceId, runId)}/events?after=${after}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal,
+    cache: "no-store",
+  });
+  if (!response.ok) throw new ApiError("任务更新连接中断。");
+  await readSse(response, (frame) => {
+    if (frame.event === "snapshot") onSnapshot(frame.data as AgentRunSnapshot);
+  });
 }
 
 async function streamRagAnswer(
@@ -224,27 +293,11 @@ async function streamRagAnswer(
     const payload = (await response.json().catch(() => null)) as { error?: { code?: string; message?: string } } | null;
     throw new ApiError(payload?.error?.message ?? "提问失败，请稍后重试。", payload?.error?.code);
   }
-  if (!response.body) throw new ApiError("服务未返回可读取的回答流。");
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  const consume = (raw: string) => {
-    const event = parseSseBlock(raw);
-    if (!event) return;
+  await readSse(response, (frame) => {
+    const event = frame as RagStreamEvent;
     if (event.event === "error") throw new ApiError(event.data.message ?? "回答生成中断，请稍后重试。", event.data.code);
     onEvent(event);
-  };
-
-  while (true) {
-    const { done, value } = await reader.read();
-    buffer += decoder.decode(value, { stream: !done });
-    const blocks = buffer.split(/\r?\n\r?\n/);
-    buffer = blocks.pop() ?? "";
-    blocks.forEach(consume);
-    if (done) break;
-  }
-  if (buffer.trim()) consume(buffer);
+  });
 }
 
 export const knowTraceApi = {
@@ -280,5 +333,22 @@ export const knowTraceApi = {
   listMessages: (workspaceId: string, conversationId: string) =>
     request<ConversationMessage[]>(`/api/v1/workspaces/${workspaceId}/conversations/${conversationId}/messages`),
   streamRagAnswer,
+  listAgentRuns: (workspaceId: string, signal?: AbortSignal) =>
+    request<AgentRunSummary[]>(agentPath(workspaceId), { signal, cache: "no-store" }),
+  getAgentRun: (workspaceId: string, runId: string, signal?: AbortSignal) =>
+    request<AgentRunSnapshot>(agentPath(workspaceId, runId), { signal, cache: "no-store" }),
+  createAgentRun: (workspaceId: string, id: string, executorId: string, task: string) =>
+    request<AgentRunSnapshot>(agentPath(workspaceId), {
+      method: "POST",
+      body: JSON.stringify({ id, executor_id: executorId, task }),
+    }),
+  decideAgentRun: (workspaceId: string, runId: string, approvalId: string, approved: boolean) =>
+    request<AgentRunSnapshot>(`${agentPath(workspaceId, runId)}/decision`, {
+      method: "POST",
+      body: JSON.stringify({ approval_id: approvalId, approved }),
+    }),
+  cancelAgentRun: (workspaceId: string, runId: string) =>
+    request<AgentRunSnapshot>(`${agentPath(workspaceId, runId)}/cancel`, { method: "POST" }),
+  streamAgentRun,
 };
 import { getAccessToken } from "@/lib/supabase-browser";

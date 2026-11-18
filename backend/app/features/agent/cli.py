@@ -2,9 +2,8 @@ import argparse
 import asyncio
 import re
 import sys
-from collections.abc import Callable
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
 from pydantic import AliasChoices, Field, SecretStr, ValidationError
@@ -12,10 +11,11 @@ from pydantic_settings import BaseSettings
 
 from app.core.config import Settings
 from app.features.agent.edits import FileChanges, journal_path
+from app.features.agent.executor import ExecutorClient, serve
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.model import ChatCompletionsModel
 from app.features.agent.runtime import AgentError, run_agent
-from app.features.agent.tools import KnowledgeClient, WorkspaceTools
+from app.features.agent.tools import KnowledgeClient, PatchTool, WorkspaceTools
 
 
 class CliSettings(BaseSettings):
@@ -86,10 +86,10 @@ def _confirm(diff: str) -> bool:
         return False
 
 
-def _patch_tool(files: WorkspaceFiles) -> Callable[..., dict[str, str]]:
+def _patch_tool(files: WorkspaceFiles) -> PatchTool:
     changes = FileChanges(files, journal_path())
 
-    def apply_patch(path: str, old_text: str, new_text: str) -> dict[str, str]:
+    async def apply_patch(path: str, old_text: str, new_text: str) -> dict[str, str]:
         result = changes.apply(path, old_text, new_text, _confirm)
         if result["status"] == "applied":
             print(
@@ -127,6 +127,18 @@ async def _run(args: argparse.Namespace) -> None:
         knowledge = KnowledgeClient(
             client, knowledge_url, args.workspace_id, token.get_secret_value().strip()
         )
+        if args.serve:
+            await serve(
+                ExecutorClient(
+                    client, knowledge_url, args.workspace_id, token.get_secret_value().strip()
+                ),
+                args.executor_id or uuid4(),
+                FileChanges(files, journal_path()),
+                model,
+                knowledge,
+                args.max_steps,
+            )
+            return
         tools = WorkspaceTools(knowledge, files, _patch_tool(files) if args.edit else None)
         await run_agent(
             model,
@@ -161,8 +173,12 @@ def main(argv: list[str] | None = None) -> int:
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--edit", action="store_true", help="启用经确认的文件修改")
     mode.add_argument("--undo", type=UUID, metavar="ID", help="按修改 ID 预览和回退")
+    mode.add_argument("--serve", action="store_true", help="领取 Web 工作台的 Agent 任务")
+    parser.add_argument("--executor-id", type=UUID, help="复用工作台中已选定的执行器 ID")
     parser.add_argument("task", nargs="?", help="交给 Agent 的任务")
     args = parser.parse_args(argv)
+    if args.executor_id is not None and not args.serve:
+        parser.error("--executor-id 须与 --serve 一起使用。")
     try:
         if args.undo is not None:
             if args.task is not None:
@@ -171,8 +187,12 @@ def main(argv: list[str] | None = None) -> int:
         else:
             if args.workspace_id is None:
                 parser.error("运行 Agent 须提供 --workspace-id。")
-            if not 1 <= args.max_steps <= 20 or not 1 <= len((args.task or "").strip()) <= 8000:
-                parser.error("轮数须在 1–20 之间，任务须包含 1–8000 个字符。")
+            if not 1 <= args.max_steps <= 20:
+                parser.error("轮数须在 1–20 之间。")
+            if args.serve and args.task is not None:
+                parser.error("本地执行器从 Web 工作台领取任务。")
+            if not args.serve and not 1 <= len((args.task or "").strip()) <= 8000:
+                parser.error("任务须包含 1–8000 个字符。")
             asyncio.run(_run(args))
     except ValidationError:
         print("Agent 环境配置格式无效。", file=sys.stderr)

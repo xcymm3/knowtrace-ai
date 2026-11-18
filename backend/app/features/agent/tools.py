@@ -1,6 +1,6 @@
 import asyncio
 import json
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -86,14 +86,18 @@ class KnowledgeClient:
         return data.hits[:limit]
 
 
+PatchTool = Callable[..., Awaitable[dict[str, str]]]
+
+
 class WorkspaceTools:
     def __init__(
         self,
         knowledge: KnowledgeClient,
         files: WorkspaceFiles,
-        apply_patch: Callable[..., dict[str, str]] | None = None,
+        apply_patch: PatchTool | None = None,
     ) -> None:
         self._knowledge = knowledge
+        self._apply_patch = apply_patch
         self._definitions = _TOOLS.copy()
         self._file_actions = {
             "list_files": files.list_files,
@@ -105,7 +109,6 @@ class WorkspaceTools:
                 _FilePatch,
                 "预览单个现有文本文件的替换 diff。仅在用户确认后写入并返回回退 ID。",
             )
-            self._file_actions["apply_patch"] = apply_patch
         self.sources: dict[UUID, tuple[str, KnowledgeSearchHit]] = {}
 
     def definitions(self) -> list[dict[str, Any]]:
@@ -148,11 +151,14 @@ class WorkspaceTools:
             result = await self._search_knowledge(**arguments)
         else:
             try:
-                action = self._file_actions[tool_call.name]
-                if tool_call.name == "apply_patch":
-                    result = action(**arguments)
+                if tool_call.name == "apply_patch" and self._apply_patch is not None:
+                    result = await self._apply_patch(**arguments)
                 else:
-                    result = await asyncio.to_thread(action, **arguments)
+                    result = await asyncio.to_thread(
+                        self._file_actions[tool_call.name], **arguments
+                    )
+            except AgentError:
+                raise
             except (OSError, RuntimeError):
                 result = {"error": "无法访问指定的本地路径。"}
             except ValueError as error:

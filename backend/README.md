@@ -72,6 +72,29 @@ uv run python -m app.features.agent --root "D:\projects\example" --undo "<回退
 `$XDG_STATE_HOME/knowtrace/agent` 或 `~/.local/state/knowtrace/agent`。
 可以用 `KNOWTRACE_AGENT_STATE_DIR` 指定其他位置。Git 仓库可照常用 `git diff` 检查改动。
 
+### 在 Web 工作台运行
+
+先应用 [Agent 任务迁移](../supabase/migrations/20261118000000_create_agent_runs.sql)，并部署包含 Agent
+接口的 FastAPI。启动本地执行器前，用前面的配置设置模型和 `KNOWTRACE_ACCESS_TOKEN`。
+令牌需属于当前登录 Web 工作台的用户。
+
+```powershell
+Set-Location backend
+uv run python -m app.features.agent --serve `
+  --root "D:\projects\example" `
+  --workspace-id "<知识库 UUID>" `
+  --api-base-url "http://127.0.0.1:8000"
+```
+
+打开对应知识库的 **Agent 任务**，填入终端打印的执行器 ID，提交任务。工具记录和 diff 会显示在任务页。
+点击 **确认写入** 后，本地执行器会校验预览版本并写入。点击 **拒绝变更** 可保留任务的回答，
+点击 **取消任务** 则结束后续执行。如果写入已经开始，界面仍会记录写入结果及回退 ID。
+
+任务、工具记录、diff 和审批保存在 Supabase。diff 可能包含本地文件原文，请只选择允许同步这些内容的目录。
+刷新页面可以恢复选中的任务。浏览器断线时执行器可继续运行，执行器与 API 短暂断线后会重试同一请求。
+执行器进程退出后，已领取的任务不会自动重新执行。重新启动时可以通过 `--executor-id` 复用原 ID，
+并从工作台取消尚未进入写入阶段的旧任务。
+
 ## 核心接口
 
 | 能力 | 接口 |
@@ -84,6 +107,7 @@ uv run python -m app.features.agent --root "D:\projects\example" --undo "<回退
 | 会话 | `POST/GET /api/v1/workspaces/{workspace_id}/conversations` |
 | 消息 | `GET /api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages` |
 | 流式回答 | `POST /api/v1/workspaces/{workspace_id}/conversations/{conversation_id}/messages/stream` |
+| Agent 任务 | `GET/POST /api/v1/workspaces/{workspace_id}/agent/runs`，任务下有详情、事件流、审批和取消接口 |
 
 ## 模型与安全边界
 

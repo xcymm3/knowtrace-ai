@@ -16,6 +16,8 @@ import {
 
 import styles from "@/app/page.module.css";
 
+import { AgentPanel } from "./agent-panel";
+
 type WorkspaceData = { documents: KnowledgeDocument[]; tasks: ProcessingTask[] };
 type DeletionTarget =
   | { kind: "workspace"; workspace: WorkspaceProject }
@@ -88,6 +90,7 @@ type WorkspaceClientProps = {
 export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const [projects, setProjects] = useState<WorkspaceProject[]>([]);
   const [projectId, setProjectId] = useState<string | null>(null);
+  const [agentWorkspace, setAgentWorkspace] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<WorkspaceData>(emptyWorkspace);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -115,6 +118,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
   const workspaceLoadVersionRef = useRef(0);
 
   const activeProject = projects.find((project) => project.id === projectId) ?? null;
+  const isAgentOpen = !!activeProject && agentWorkspace === activeProject.id;
   const activeConversation = conversations.find((conversation) => conversation.id === conversationId) ?? null;
   const activeTasks = useMemo(() => workspace.tasks.filter((task) => ["QUEUED", "RUNNING"].includes(task.status)), [workspace.tasks]);
   const visibleTasks = useMemo(() => [
@@ -147,11 +151,24 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
     return nextProjects;
   }, []);
 
+  function showAgent(workspaceId: string | null) {
+    const url = new URL(window.location.href);
+    if (workspaceId) url.searchParams.set("agent", workspaceId);
+    else url.searchParams.delete("agent");
+    url.searchParams.delete("run");
+    window.history.replaceState(null, "", url);
+    setAgentWorkspace(workspaceId);
+  }
+
   useEffect(() => {
     void (async () => {
       try {
         const nextProjects = await refreshProjects();
-        if (nextProjects[0]) setProjectId(nextProjects[0].id);
+        const requested = new URL(window.location.href).searchParams.get("agent");
+        const restored = nextProjects.find((project) => project.id === requested);
+        if (restored) setAgentWorkspace(restored.id);
+        const initial = restored ?? nextProjects[0];
+        if (initial) setProjectId(initial.id);
       } catch (caughtError) {
         setError(readableError(caughtError));
       } finally {
@@ -459,7 +476,10 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
           <div className={styles.projectList} role="list">
             {projects.map((project) => (
               <div className={styles.railItem} key={project.id} role="listitem">
-                <button className={`${styles.projectItem} ${project.id === projectId ? styles.projectItemActive : ""}`} type="button" onClick={() => setProjectId(project.id)} aria-pressed={project.id === projectId} disabled={isLoading || isStreaming}>
+                <button className={`${styles.projectItem} ${project.id === projectId ? styles.projectItemActive : ""}`} type="button" onClick={() => {
+                  if (project.id !== projectId && isAgentOpen) showAgent(project.id);
+                  setProjectId(project.id);
+                }} aria-pressed={project.id === projectId} disabled={isLoading || isStreaming}>
                   <span className={styles.projectItemName}>{project.name}</span>
                 </button>
                 <button className={styles.deleteRailItem} type="button" onClick={() => setDeletionTarget({ kind: "workspace", workspace: project })} aria-label={`删除知识库 ${project.name}`} title="删除知识库" disabled={isStreaming || isDeleting}>×</button>
@@ -519,9 +539,14 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
               <div className={styles.workspaceFeedback} aria-live="polite">
                 {error ? <p className={styles.feedbackError} role="alert">{error}</p> : null}
                 {notice ? <p className={styles.feedbackNotice} role="status">{notice}</p> : null}
+                <button className={styles.secondaryButton} type="button" disabled={isStreaming}
+                  onClick={() => showAgent(isAgentOpen ? null : activeProject.id)}>
+                  {isAgentOpen ? "返回知识库问答" : "Agent 任务"}
+                </button>
               </div>
             </header>
 
+            {isAgentOpen ? <AgentPanel workspaceId={activeProject.id} key={activeProject.id} /> : <>
             {messages.length ? <div className={styles.messageTimeline} aria-live="polite">
               {messages.map((message) => <article className={`${styles.message} ${message.role === "USER" ? styles.userMessage : styles.assistantMessage}`} key={message.id}>
                 <p className={styles.messageRole}>{message.role === "USER" ? "你的问题" : "KnowTrace"}</p>
@@ -540,6 +565,7 @@ export function WorkspaceClient({ userName, onSignOut }: WorkspaceClientProps) {
               <textarea id="message" value={question} onChange={(event) => setQuestion(event.target.value)} onKeyDown={handleComposerKeyDown} disabled={!indexedDocuments.length || !conversationId || isStreaming} placeholder={!indexedDocuments.length ? "等待至少一份资料完成索引后即可提问" : !conversationId ? "请先在左侧新建一段对话" : "向当前知识库的资料提问，Enter 发送，Shift+Enter 换行"} rows={1} />
               <button className={styles.iconButton} type="submit" disabled={!isStreaming && (!question.trim() || !indexedDocuments.length || !conversationId)} aria-label={isStreaming ? "停止生成" : "发送问题"}>{isStreaming ? "■" : "↑"}</button>
             </form>
+            </>}
           </section>
 
           <aside className={styles.filesPane} aria-labelledby="files-title">

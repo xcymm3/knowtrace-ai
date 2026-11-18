@@ -33,6 +33,7 @@ async function proxyToApi(request: NextRequest, { params }: RouteContext) {
       body: ["GET", "HEAD"].includes(request.method) ? undefined : await request.arrayBuffer(),
       cache: "no-store",
       redirect: "manual",
+      signal: request.signal,
     });
 
     const responseHeaders = new Headers(response.headers);
