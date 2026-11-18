@@ -12,7 +12,7 @@ from postgrest.exceptions import APIError
 
 from app import main
 from app.api.auth import get_owned_workspace_id
-from app.api.v1 import agent
+from app.api.v1 import agent, local_agent
 from app.core.config import Settings
 from app.core.errors import ApiError, register_error_handlers
 from app.features.agent import local
@@ -44,11 +44,16 @@ def _poll(http: TestClient, route: str, status: str) -> dict:
     raise AssertionError(f"本地 Agent 未进入 {status}：{snapshot}")
 
 
-def _local_app(root: Path, state: Path, monkeypatch: pytest.MonkeyPatch) -> FastAPI:
-    settings = Settings(local_agent_root=root)
+def _local_app(
+    root: Path, state: Path, monkeypatch: pytest.MonkeyPatch, *, standalone: bool = False
+) -> FastAPI:
+    settings = Settings(
+        local_agent_root=root, local_agent_token="test-local-token" if standalone else None
+    )
     monkeypatch.setenv("KNOWTRACE_AGENT_STATE_DIR", str(state))
     monkeypatch.setattr(main, "settings", settings)
     monkeypatch.setattr(agent, "get_settings", lambda: settings)
+    monkeypatch.setattr(local_agent, "get_settings", lambda: settings)
     monkeypatch.setattr(
         agent, "create_supabase_client", lambda *_: pytest.fail("本机任务无需 Supabase 数据表")
     )
@@ -56,6 +61,7 @@ def _local_app(root: Path, state: Path, monkeypatch: pytest.MonkeyPatch) -> Fast
     app = FastAPI(lifespan=main.lifespan)
     register_error_handlers(app)
     app.include_router(agent.router)
+    app.include_router(local_agent.router)
     return app
 
 
@@ -217,6 +223,132 @@ def test_desktop_undo_preserves_file_edited_after_preview(tmp_path: Path) -> Non
 
     with pytest.raises(ValueError, match="已修改"):
         changes.undo(receipt, confirm)
+    assert target.read_bytes() == b"keep"
+
+
+def test_standalone_agent_enforces_permission_and_persists_followups(tmp_path, monkeypatch):
+    project = tmp_path / "project"
+    project.mkdir()
+    external = tmp_path / "outside-project.txt"
+    state = tmp_path / "state"
+
+    class FilesystemModel:
+        async def complete(self, messages, tools, on_text):
+            names = {tool["function"]["name"] for tool in tools}
+            assert "search_knowledge" not in names
+            task = messages[-1]
+            if task.role == "tool":
+                assert json.loads(task.content)["status"] == "applied"
+                return Message("assistant", "本机文件已写入。")
+            if task.content == "只读检查":
+                assert names == {"list_files", "read_file", "search_files"}
+                return Message("assistant", "当前任务只读。")
+            assert {"apply_patch", "create_file", "create_directory"} <= names
+            arguments = {"path": str(external)}
+            if task.content == "写入文件":
+                return Message(
+                    "assistant",
+                    "",
+                    (
+                        ToolCall(
+                            "create",
+                            "create_file",
+                            json.dumps({**arguments, "content": "original"}),
+                        ),
+                    ),
+                )
+            assert messages[1].content == "写入文件"
+            assert messages[2].content == "本机文件已写入。"
+            return Message(
+                "assistant",
+                "",
+                (
+                    ToolCall(
+                        "patch",
+                        "apply_patch",
+                        json.dumps({**arguments, "old_text": "original", "new_text": "edited"}),
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr(local, "local_model", lambda *_: FilesystemModel())
+    app = _local_app(project, state, monkeypatch, standalone=True)
+    root_route = "/agent/runs"
+    headers = {"X-KnowTrace-Local": "test-local-token"}
+    try:
+        with TestClient(app) as http:
+            assert http.get("/agent/threads").status_code == 403
+            assert (
+                http.get(
+                    "/agent/threads", headers=headers | {"X-KnowTrace-Local": "wrong"}
+                ).status_code
+                == 403
+            )
+            http.headers.update(headers)
+            readonly = str(uuid4())
+            response = http.post(
+                root_route,
+                json={
+                    "id": readonly,
+                    "thread_id": readonly,
+                    "task": "只读检查",
+                    "permission": "read_only",
+                },
+            )
+            assert response.status_code == 201
+            assert _poll(http, f"{root_route}/{readonly}", "SUCCEEDED")["approval"] is None
+            assert not external.exists()
+
+            thread_id = str(uuid4())
+            receipt = None
+            for run_id, task, before, after in (
+                (thread_id, "写入文件", None, b"original"),
+                (str(uuid4()), "修改该文件", b"original", b"edited"),
+            ):
+                payload = {"id": run_id, "thread_id": thread_id, "task": task, "permission": "full"}
+                route = f"{root_route}/{run_id}"
+                assert http.post(root_route, json=payload).status_code == 201
+                assert http.post(root_route, json=payload).json()["id"] == run_id
+                assert (
+                    http.post(root_route, json={**payload, "permission": "read_only"}).status_code
+                    == 409
+                )
+                preview = _poll(http, route, "WAITING_APPROVAL")
+                assert preview["approval"]["path"] == str(external)
+                assert (external.read_bytes() if external.exists() else None) == before
+                decision = {"approval_id": preview["approval"]["id"], "approved": True}
+                assert http.post(route + "/decision", json=decision).status_code == 200
+                complete = _poll(http, route, "SUCCEEDED")
+                receipt = complete["approval"]["change_id"]
+                assert external.read_bytes() == after
+
+            assert not (state / "worktrees").exists()
+            assert {x["id"] for x in http.get("/agent/threads").json()} == {readonly, thread_id}
+        with TestClient(app, headers=headers) as http:
+            turns = http.get(f"/agent/threads/{thread_id}").json()
+            assert [row["task"] for row in turns] == ["写入文件", "修改该文件"]
+            assert all(
+                row["permission"] == "full" and row["status"] == "SUCCEEDED" for row in turns
+            )
+        changes = FileChanges(WorkspaceFiles(tmp_path), state / "changes.sqlite3")
+        assert changes.undo(UUID(receipt), lambda _: True)
+        assert external.read_bytes() == b"original"
+    finally:
+        agent.get_agent_runs.cache_clear()
+
+
+def test_empty_directory_rollback_preserves_added_files(tmp_path):
+    changes = FileChanges(WorkspaceFiles(tmp_path), tmp_path / "changes.sqlite3")
+    assert "创建空文件夹" in changes.preview_entry("demo", None)
+    receipt = UUID(changes.create_entry("demo", None)["change_id"])
+    assert changes.undo(receipt, lambda diff: "空文件夹" in diff)
+    assert not (tmp_path / "demo").exists()
+
+    receipt = UUID(changes.create_entry("demo", None)["change_id"])
+    target = tmp_path / "demo" / "preserve.txt"
+    target.write_bytes(b"keep")
+    with pytest.raises(ValueError, match="已修改"):
+        changes.undo(receipt, lambda _: True)
     assert target.read_bytes() == b"keep"
 
 

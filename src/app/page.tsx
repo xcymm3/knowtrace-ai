@@ -1,5 +1,5 @@
-import { AuthGate } from "@/features/auth/auth-gate";
+import { AgentDesk } from "@/features/agent/agent-desk";
 
 export default function Home() {
-  return <AuthGate />;
+  return <AgentDesk />;
 }

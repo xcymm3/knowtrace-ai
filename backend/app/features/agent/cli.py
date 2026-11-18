@@ -113,7 +113,7 @@ def _batch_tool(changes: FileChanges) -> BatchTool:
 
 
 def _undo(root: Path, change_id: UUID) -> None:
-    changes = FileChanges(_workspace_files(root), journal_path())
+    changes = FileChanges(WorkspaceFiles(root, allow_protected=True), journal_path())
     try:
         restored = changes.undo(change_id, _confirm)
     except OSError as error:
@@ -171,12 +171,13 @@ async def _chat(model: ChatModel, task: str, knowledge: KnowledgeClient | None) 
 async def _run_task(
     args: argparse.Namespace,
     model: ChatModel,
-    knowledge: KnowledgeClient,
+    knowledge: KnowledgeClient | None,
     executor: ExecutorClient | None,
 ) -> None:
     files = _workspace_files(args.root)
     commands = load_commands(args.commands)
     if executor is not None:
+        assert knowledge is not None
         await serve(
             executor, args.executor_id or uuid4(), files, model, knowledge, args.max_steps, commands
         )
@@ -238,12 +239,21 @@ async def _run(args: argparse.Namespace) -> None:
             await _chat(model, args.task.strip(), None)
             return
 
-        token = settings.knowtrace_access_token
-        access = token.get_secret_value().strip() if token else ""
-        if not access:
-            raise AgentError("请设置 KNOWTRACE_ACCESS_TOKEN 为当前用户的 Supabase Access Token。")
-        knowledge_url = http_url(args.api_base_url or settings.knowtrace_api_base_url, "KnowTrace")
-        knowledge = KnowledgeClient(client, knowledge_url, args.workspace_id, access)
+        knowledge = None
+        executor = None
+        if args.workspace_id:
+            token = settings.knowtrace_access_token
+            access = token.get_secret_value().strip() if token else ""
+            if not access:
+                raise AgentError(
+                    "请设置 KNOWTRACE_ACCESS_TOKEN 为当前用户的 Supabase Access Token。"
+                )
+            knowledge_url = http_url(
+                args.api_base_url or settings.knowtrace_api_base_url, "KnowTrace"
+            )
+            knowledge = KnowledgeClient(client, knowledge_url, args.workspace_id, access)
+            if args.serve:
+                executor = ExecutorClient(client, knowledge_url, args.workspace_id, access)
         if args.chat:
             await _chat(model, args.task.strip(), knowledge)
         else:
@@ -251,18 +261,13 @@ async def _run(args: argparse.Namespace) -> None:
                 raise AgentError(
                     f"模型档案未通过工具往返检测。{capabilities.detail} 可用 --chat 进行文本问答。"
                 )
-            executor = (
-                ExecutorClient(client, knowledge_url, args.workspace_id, access)
-                if args.serve
-                else None
-            )
             await _run_task(args, model, knowledge, executor)
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.features.agent",
-        description="结合知识库查询和修改本地文件的 Agent",
+        description="读取和修改本地文件的 Agent",
     )
     parser.add_argument("--root", type=Path, help="授权读取的本地目录")
     parser.add_argument("--workspace-id", type=UUID, help="KnowTrace 知识库 ID")
@@ -296,8 +301,10 @@ def main(argv: list[str] | None = None) -> int:
             _undo(args.root, args.undo)
         else:
             agent_mode = not (args.check_model or args.chat)
-            if agent_mode and (args.root is None or args.workspace_id is None):
-                parser.error("运行 Agent 须提供 --root 和 --workspace-id。")
+            if agent_mode and args.root is None:
+                parser.error("运行 Agent 须提供 --root。")
+            if args.serve and args.workspace_id is None:
+                parser.error("旧版远程执行模式须提供 --workspace-id。")
             if not 1 <= args.max_steps <= 20:
                 parser.error("轮数须在 1–20 之间。")
             if (args.serve or args.check_model) and args.task is not None:

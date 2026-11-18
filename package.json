@@ -1,6 +1,6 @@
 {
   "name": "knowtrace-ai",
-  "description": "A traceable knowledge workspace for document-grounded AI answers.",
+  "description": "A local file agent with a web workbench and per-task permissions.",
   "version": "0.1.0",
   "license": "MIT",
   "private": true,
@@ -14,7 +14,6 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.112.2",
     "next": "16.2.11",
     "react": "19.2.4",
     "react-dom": "19.2.4"

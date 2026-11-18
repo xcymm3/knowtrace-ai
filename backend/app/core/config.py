@@ -2,6 +2,7 @@ import os
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -42,6 +43,7 @@ class Settings(BaseSettings):
     local_agent_commands: Path | None = None
     local_agent_model_config: Path | None = None
     local_agent_profile: str | None = None
+    local_agent_token: SecretStr | None = None
 
     @property
     def allowed_origins(self) -> list[str]:

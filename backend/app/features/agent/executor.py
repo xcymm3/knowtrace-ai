@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from app.features.agent.checks import CommandMap, Verification
 from app.features.agent.edits import FileChanges, journal_path
 from app.features.agent.files import WorkspaceFiles
+from app.features.agent.full_paths import FullAccessFiles
 from app.features.agent.runs import MAX_APPROVALS, MAX_DIFF, RunSnapshot
 from app.features.agent.runtime import AgentError, ChatModel, Message, ToolCall, run_agent
 from app.features.agent.tools import KnowledgeSource, WorkspaceTools
@@ -124,15 +125,51 @@ class LocalRun:
         await self.event("tool_start", f"create_file · {label}")
         diff = await asyncio.to_thread(self.changes.preview_create, name)
         result = await self._apply(diff, label, lambda: self.changes.create_empty(name))
+        await self.finish_creation("create_file", label, result)
+
+    async def create_full_desktop_file(self, files: WorkspaceFiles, name: str) -> None:
+        path = str(files.direct_file_path(name))
+        await self.event("tool_start", f"create_file · {path}")
+        result = await self.create_file(path, "")
+        await self.finish_creation("create_file", result["path"], result)
+
+    async def finish_creation(self, tool: str, label: str, result: dict[str, str]) -> None:
         if error := result.get("error"):
             await self.update("finish", error=error[:500])
             return
         if result["status"] == "rejected":
             await self.event("message", f"已拒绝创建 {label}。")
         else:
-            await self.event("tool_end", f"create_file · {label} · 回退 ID {result['change_id']}")
-            await self.event("message", f"已创建 {label}（0 字节）。")
+            await self.event("tool_end", f"{tool} · {label} · 回退 ID {result['change_id']}")
+            await self.event("message", f"已创建 {label}。")
         await self.update("finish")
+
+    async def _full_target(self, path: str) -> tuple[FileChanges, str, str]:
+        files = self.changes.files
+        assert isinstance(files, FullAccessFiles)
+        folder, name = await asyncio.to_thread(files.entry_target, path)
+        return FileChanges(folder, journal_path()), name, str(folder.root / name)
+
+    async def apply_full_patch(self, path: str, old_text: str, new_text: str) -> dict[str, str]:
+        changes, name, label = await self._full_target(path)
+        prepared = await asyncio.to_thread(changes.prepare, name, old_text, new_text)
+        return await self._apply(prepared.diff, label, lambda: changes.commit(prepared))
+
+    async def _create_entry(self, path: str, data: bytes | None) -> dict[str, str]:
+        folder, name = await asyncio.to_thread(self.changes.files.entry_target, path)
+        changes = FileChanges(folder, journal_path())
+        label = str(folder.root / name)
+        diff = await asyncio.to_thread(changes.preview_entry, name, data)
+        result = await self._apply(diff, label, lambda: changes.create_entry(name, data))
+        return {**result, "path": label}
+
+    async def create_file(self, path: str, content: str) -> dict[str, str]:
+        if "\x00" in content:
+            raise ValueError("新文件须为普通 UTF-8 文本。")
+        return await self._create_entry(path, content.encode("utf-8"))
+
+    async def create_directory(self, path: str) -> dict[str, str]:
+        return await self._create_entry(path, None)
 
     async def _apply(
         self, diff: str, label: str, commit: Callable[[], dict[str, str]]
@@ -233,6 +270,10 @@ async def execute_local(
     task: str,
     max_steps: int,
     rules: str = "",
+    *,
+    edit: bool = True,
+    scope: str = "",
+    history: tuple[Message, ...] = (),
 ) -> None:
     async def work() -> None:
         await run_agent(
@@ -242,8 +283,10 @@ async def execute_local(
             max_steps=max_steps,
             on_text=lambda _: None,
             on_tool=lambda _: None,
-            edit=True,
+            edit=edit,
             project_rules=rules,
+            scope=scope,
+            history=history,
             verify=tools.verification.feedback if tools.verification else None,
         )
         if tools.sources:
@@ -281,9 +324,10 @@ async def run_claimed(
     claim_id: UUID,
     source: WorkspaceFiles,
     model: ChatModel,
-    knowledge: KnowledgeSource,
+    knowledge: KnowledgeSource | None,
     max_steps: int,
     commands: CommandMap,
+    history: tuple[Message, ...] = (),
 ) -> None:
     journal = journal_path()
     try:
@@ -300,11 +344,13 @@ async def run_claimed(
         changes.files,
         run.apply_patch,
         apply_patches=run.apply_patches,
+        create_file=run.create_file,
+        create_directory=run.create_directory,
         verification=Verification(worktree.files.root, commands),
     )
     try:
         await run.event("message", f"工作树 {snapshot.id.hex} · 基线 {worktree.base_commit}")
-        await execute_local(run, model, tools, snapshot.task, max_steps, rules)
+        await execute_local(run, model, tools, snapshot.task, max_steps, rules, history=history)
     except RunCancelled:
         pass
 

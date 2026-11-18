@@ -7,6 +7,8 @@ from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from pydantic import BaseModel
 
 from app.api.v1.agent import get_agent_runs
+from app.api.v1.health import router as health_router
+from app.api.v1.local_agent import router as local_agent_router
 from app.api.v1.router import api_router
 from app.core.config import get_settings
 from app.core.errors import register_error_handlers
@@ -37,11 +39,7 @@ async def lifespan(_app: FastAPI):
 
 app = FastAPI(
     title="KnowTrace API",
-    summary="Evidence-backed APIs for traceable knowledge workspaces.",
-    description=(
-        "The domain API for KnowTrace AI. It will manage workspaces, documents, "
-        "background tasks and traceable retrieval results."
-    ),
+    summary="KnowTrace local Agent API.",
     version="0.1.0",
     openapi_url=f"{settings.api_v1_prefix}/openapi.json",
     docs_url="/docs",
@@ -61,7 +59,11 @@ app.add_middleware(
 )
 register_error_handlers(app)
 
-app.include_router(api_router, prefix=settings.api_v1_prefix)
+if settings.local_agent_root is not None:
+    app.include_router(health_router, prefix=settings.api_v1_prefix)
+    app.include_router(local_agent_router, prefix=settings.api_v1_prefix)
+else:
+    app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 
 class RootResponse(BaseModel):

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import json
 import os
 import sqlite3
@@ -10,6 +12,7 @@ from uuid import UUID
 from app.features.agent.runs import Claim, Row
 
 LOCAL_EXECUTOR_ID = UUID("7af3b161-7119-4818-b30a-57ae487c54cf")
+LOCAL_WORKSPACE_ID = UUID("6ecddd9b-b5da-4dd5-954a-7283ebb66841")
 
 
 class LocalRunStore:
@@ -111,6 +114,23 @@ class LocalRunStore:
     def get(self, workspace_id: UUID, run_id: UUID) -> Row | None:
         return self._first("WHERE workspace_id = ? AND id = ?", str(workspace_id), str(run_id))
 
+    def thread(self, thread_id: UUID, limit: int = 60) -> list[Row]:
+        rows = self._select(
+            "WHERE workspace_id = ? AND json_extract(payload, '$.thread_id') = ? "
+            "ORDER BY created_at DESC LIMIT ?",
+            str(LOCAL_WORKSPACE_ID),
+            str(thread_id),
+            str(limit),
+        )
+        return list(reversed(rows))
+
+    def threads(self) -> list[Row]:
+        return self._select(
+            "WHERE workspace_id = ? AND id = json_extract(payload, '$.thread_id') "
+            "ORDER BY created_at DESC LIMIT 100",
+            str(LOCAL_WORKSPACE_ID),
+        )
+
     def claimed(self, workspace_id: UUID, claim: Claim) -> Row | None:
         return self._first(
             "WHERE workspace_id = ? AND executor_id = ? AND claim_id = ?",
@@ -126,11 +146,13 @@ class LocalRunStore:
             str(executor_id),
         )
 
-    def next_local(self) -> Row | None:
-        return self._first(
-            "WHERE executor_id = ? AND status = 'QUEUED' ORDER BY created_at",
-            str(LOCAL_EXECUTOR_ID),
-        )
+    def next_local(self, workspace: UUID | None = None) -> Row | None:
+        where = "WHERE executor_id = ? AND status = 'QUEUED'"
+        params = [str(LOCAL_EXECUTOR_ID)]
+        if workspace is not None:
+            where += " AND workspace_id = ?"
+            params.append(str(workspace))
+        return self._first(f"{where} ORDER BY created_at", *params)
 
     def update(self, row: Row, fields: Row) -> Row | None:
         current = {**row, **fields, "revision": row["revision"] + 1}
@@ -156,7 +178,7 @@ class LocalRunStore:
     def interrupt_active(self) -> None:
         rows = self._select("WHERE status IN ('RUNNING', 'WAITING_APPROVAL', 'APPLYING')")
         for row in rows:
-            message = "本地服务已重启。请检查该任务的工作树，再发起新任务。"
+            message = "本地服务已重启。请检查该任务的目标文件，再发起新任务。"
             changes = {
                 "status": "FAILED",
                 "events": [

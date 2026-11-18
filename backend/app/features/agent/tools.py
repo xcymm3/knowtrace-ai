@@ -52,6 +52,15 @@ class _BatchPatch(_Arguments):
     edits: list[_FilePatch] = Field(min_length=1, max_length=8)
 
 
+class _CreateFile(_Arguments):
+    path: str = Field(min_length=1, max_length=512)
+    content: Annotated[str, StringConstraints(strip_whitespace=False, max_length=32768)] = ""
+
+
+class _CreateDirectory(_Arguments):
+    path: str = Field(min_length=1, max_length=512)
+
+
 class _Check(_Arguments):
     name: str = Field(min_length=1, max_length=40)
 
@@ -115,18 +124,31 @@ BatchTool = Callable[[list[dict[str, str]]], Awaitable[dict[str, Any]]]
 class WorkspaceTools:
     def __init__(
         self,
-        knowledge: KnowledgeSource,
+        knowledge: KnowledgeSource | None,
         files: WorkspaceFiles,
         apply_patch: PatchTool | None = None,
         *,
         apply_patches: BatchTool | None = None,
+        create_file: PatchTool | None = None,
+        create_directory: PatchTool | None = None,
+        full_access: bool = False,
         verification: Verification | None = None,
     ) -> None:
         self._knowledge = knowledge
         self._apply_patch = apply_patch
         self._apply_patches = apply_patches
+        self._create_file = create_file
+        self._create_directory = create_directory
         self.verification = verification
         self._definitions = _TOOLS.copy()
+        if knowledge is None:
+            del self._definitions["search_knowledge"]
+        if full_access:
+            self._definitions.update(
+                list_files=(_FileList, "列出本机指定目录中的文件和子目录。可使用完整本机路径。"),
+                search_files=(_FileSearch, "在指定本机目录的文本文件中查找字面文本。"),
+                read_file=(_FileRead, "读取本机指定 UTF-8 文件，可按行分页。"),
+            )
         self._file_actions = {
             "list_files": files.list_files,
             "search_files": files.search_files,
@@ -135,7 +157,7 @@ class WorkspaceTools:
         if apply_patch is not None:
             self._definitions["apply_patch"] = (
                 _FilePatch,
-                "预览单个现有文本文件的替换 diff。仅在用户确认后写入并返回回退 ID。",
+                "预览单个现有文本文件的替换 diff，确认后写入。完全访问模式支持绝对路径。",
             )
         if apply_patches is not None:
             self._definitions["apply_patches"] = (
@@ -148,6 +170,16 @@ class WorkspaceTools:
             self._definitions["run_check"] = (
                 _Check,
                 f"在隔离工作树内运行已授权的命令，并返回退出码和日志。可选名称：{names}。",
+            )
+        if create_file is not None:
+            self._definitions["create_file"] = (
+                _CreateFile,
+                "提出创建一个 UTF-8 文件，确认后写入。内容可为空。",
+            )
+        if create_directory is not None:
+            self._definitions["create_directory"] = (
+                _CreateDirectory,
+                "提出在现有父目录内新建一个空文件夹，确认后创建。",
             )
         self.sources: dict[UUID, tuple[str, KnowledgeSearchHit]] = {}
 
@@ -165,6 +197,7 @@ class WorkspaceTools:
         ]
 
     async def _search_knowledge(self, query: str, limit: int) -> dict[str, object]:
+        assert self._knowledge is not None
         hits = await self._knowledge.search(query, limit)
         matches = []
         for hit in hits:
@@ -200,6 +233,10 @@ class WorkspaceTools:
                     result = await self._apply_patches(arguments["edits"])
                 elif tool_call.name == "run_check" and self.verification is not None:
                     result = await self.verification.run(arguments["name"])
+                elif tool_call.name == "create_file" and self._create_file is not None:
+                    result = await self._create_file(**arguments)
+                elif tool_call.name == "create_directory" and self._create_directory is not None:
+                    result = await self._create_directory(**arguments)
                 else:
                     result = await asyncio.to_thread(
                         self._file_actions[tool_call.name], **arguments
@@ -212,7 +249,8 @@ class WorkspaceTools:
                 result = {"error": str(error)}
         if (
             self.verification is not None
-            and tool_call.name in {"apply_patch", "apply_patches"}
+            and tool_call.name
+            in {"apply_patch", "apply_patches", "create_file", "create_directory"}
             and result.get("status") != "rejected"
         ):
             self.verification.invalidate()

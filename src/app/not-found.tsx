@@ -10,7 +10,7 @@ export default function NotFound() {
         <h1 className={styles.title} id="not-found-heading">
           请求的页面不存在
         </h1>
-        <p className={styles.copy}>请返回 KnowTrace 工作台，选择项目后继续处理资料或对话。</p>
+        <p className={styles.copy}>返回 KnowTrace Agent 后可打开已有会话。</p>
         <div className={styles.actions}>
           <Link className={styles.primaryAction} href="/">
             返回工作台

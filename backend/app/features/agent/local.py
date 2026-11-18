@@ -13,13 +13,15 @@ from app.features.agent.checks import load_commands
 from app.features.agent.cli import CliSettings
 from app.features.agent.desktop import desktop_directory, desktop_file_request
 from app.features.agent.edits import FileChanges, journal_path
-from app.features.agent.executor import LocalRun, RunCancelled, run_claimed
+from app.features.agent.executor import LocalRun, RunCancelled, execute_local, run_claimed
 from app.features.agent.files import WorkspaceFiles
-from app.features.agent.local_store import LOCAL_EXECUTOR_ID, LocalRunStore
+from app.features.agent.full_paths import FullAccessFiles, directory_request
+from app.features.agent.local_store import LOCAL_EXECUTOR_ID, LOCAL_WORKSPACE_ID, LocalRunStore
 from app.features.agent.model import ChatCompletionsModel
 from app.features.agent.providers import connect_profile, http_url
 from app.features.agent.runs import TERMINAL, AgentRuns, Claim, ExecutorOperation, RunSnapshot
-from app.features.agent.runtime import AgentError, ChatModel
+from app.features.agent.runtime import AgentError, ChatModel, Message
+from app.features.agent.tools import WorkspaceTools
 from app.features.knowledge.schemas import KnowledgeSearchHit, KnowledgeSearchRequest
 
 logger = logging.getLogger(__name__)
@@ -73,13 +75,83 @@ def local_model(settings: Settings, client: httpx.AsyncClient) -> ChatModel:
     return ChatCompletionsModel(client, http_url(base_url, "模型服务"), api_key, model)
 
 
+async def _standalone(
+    settings: Settings,
+    client: httpx.AsyncClient,
+    controller: LocalRunController,
+    snapshot: RunSnapshot,
+    claim_id: UUID,
+    store: LocalRunStore,
+) -> None:
+    assert settings.local_agent_root is not None
+    desktop_name = desktop_file_request(snapshot.task)
+    absolute_directory = directory_request(snapshot.task)
+    if (
+        desktop_name is not None or absolute_directory is not None
+    ) and snapshot.permission != "full":
+        raise AgentError("此目标位于项目目录之外。请将新任务的权限切换至「完全访问」。")
+
+    root = settings.local_agent_root
+    files = FullAccessFiles(root) if snapshot.permission == "full" else WorkspaceFiles(root)
+    changes = FileChanges(files, journal_path())
+    run = LocalRun(controller, snapshot, claim_id, changes)
+    if desktop_name is not None:
+        await run.create_full_desktop_file(
+            WorkspaceFiles(desktop_directory(), allow_protected=True), desktop_name
+        )
+        return
+    if absolute_directory is not None:
+        await run.event("tool_start", f"create_directory · {absolute_directory}")
+        result = await run.create_directory(absolute_directory)
+        await run.finish_creation("create_directory", result["path"], result)
+        return
+
+    history = []
+    if snapshot.thread_id is not None:
+        rows = await asyncio.to_thread(store.thread, snapshot.thread_id, 8)
+        for row in rows:
+            if row["created_at"] >= snapshot.created_at.isoformat() or row["status"] != "SUCCEEDED":
+                continue
+            replies = [event["text"] for event in row["events"] if event["kind"] == "message"]
+            if replies:
+                history.extend(
+                    (Message("user", row["task"][:4000]), Message("assistant", replies[-1][:4000]))
+                )
+    context = tuple(history)
+    model = local_model(settings, client)
+    if snapshot.permission == "project":
+        commands = load_commands(settings.local_agent_commands)
+        await run_claimed(controller, snapshot, claim_id, files, model, None, 16, commands, context)
+        return
+
+    full = snapshot.permission == "full"
+    tools = WorkspaceTools(
+        None,
+        files,
+        run.apply_full_patch if full else None,
+        create_file=run.create_file if full else None,
+        create_directory=run.create_directory if full else None,
+        full_access=full,
+    )
+    scope = (
+        f"当前权限为完全访问。默认目录是 {files.root}，支持本机磁盘绝对路径。写入须等待用户审批。"
+        "优先使用用户明确给出的路径。"
+        if full
+        else f"当前权限为项目只读。读取范围为 {files.root}，不允许写入。"
+    )
+    await execute_local(
+        run, model, tools, snapshot.task, 16, edit=full, scope=scope, history=context
+    )
+
+
 async def serve_local(settings: Settings, runs: AgentRuns) -> None:
     store = runs.store
     if not isinstance(store, LocalRunStore) or settings.local_agent_root is None:
         return
+    workspace_filter = LOCAL_WORKSPACE_ID if settings.local_agent_token is not None else None
     async with httpx.AsyncClient(timeout=httpx.Timeout(90, connect=10)) as client:
         while True:
-            queued = await asyncio.to_thread(store.next_local)
+            queued = await asyncio.to_thread(store.next_local, workspace_filter)
             if queued is None:
                 await asyncio.sleep(0.4)
                 continue
@@ -93,6 +165,9 @@ async def serve_local(settings: Settings, runs: AgentRuns) -> None:
             controller = LocalRunController(runs, workspace)
             snapshot = RunSnapshot.model_validate(row)
             try:
+                if workspace == LOCAL_WORKSPACE_ID:
+                    await _standalone(settings, client, controller, snapshot, claim_id, store)
+                    continue
                 if (name := desktop_file_request(snapshot.task)) is not None:
                     changes = FileChanges(WorkspaceFiles(desktop_directory()), journal_path())
                     await LocalRun(controller, snapshot, claim_id, changes).create_desktop_file(

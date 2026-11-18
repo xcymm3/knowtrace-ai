@@ -32,13 +32,9 @@ def test_delivery_files_describe_current_knowtrace_bootstrap() -> None:
         assert migration in supabase_guide
 
 
-def test_user_facing_materials_do_not_advertise_image_retrieval() -> None:
+def test_active_workbench_does_not_offer_legacy_knowledge_ui() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    scope = (ROOT / "docs" / "product-scope.md").read_text(encoding="utf-8")
-    workspace_client = (
-        ROOT / "src" / "features" / "workspace" / "workspace-client.tsx"
-    ).read_text(encoding="utf-8")
-
-    assert "常见图片" not in readme
-    assert "常见图片" not in scope
-    assert ".jpg,.jpeg,.png,.webp" not in workspace_client
+    home = (ROOT / "src" / "app" / "page.tsx").read_text(encoding="utf-8")
+    assert "AgentDesk" in home
+    assert "AuthGate" not in home
+    assert "完全访问" in readme

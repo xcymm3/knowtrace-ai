@@ -1,44 +1,25 @@
 # KnowTrace API
 
-FastAPI 是 KnowTrace 的唯一业务 API 层。浏览器通过 Next.js 同域代理访问 API，不直接获得 Supabase Service Role key，也不直连 Storage 或 Redis。
+FastAPI 负责执行本机 Agent。浏览器通过 Next.js 同源代理访问 `/api/v1/agent`，启动器在服务器之间传递本次启动的临时令牌。
 
 ## 本地运行
 
 开发时，从仓库根目录运行 `pnpm dev:local` 启动 Web、FastAPI 和内置 Agent，然后打开
-`http://127.0.0.1:3001`。登录并选择知识库后，即可进入 **Agent 任务**。
+`http://127.0.0.1:3001`。直接发起任务，并在输入框下选择文件权限。
 
-从仓库根目录复制 `.env.example` 为 `.env` 并填写连接信息后：
-
-```powershell
-cd backend
-$env:UV_PROJECT_ENVIRONMENT='.venv-knowtrace'
-uv sync --group dev
-uv run uvicorn app.main:app --reload --port 8000
-```
-
-另开一个终端启动后台 Worker：
-
-```powershell
-cd backend
-$env:UV_PROJECT_ENVIRONMENT='.venv-knowtrace'
-uv run arq app.worker.WorkerSettings
-```
-
-访问 `http://localhost:8000/docs` 查看 OpenAPI 文档。
+本机服务监听回环地址。会话、任务和审批保存在系统用户的 Agent 状态目录。
+旧版知识库 API 和 Worker 继续用于既有托管部署，相关设置见 [旧版 Docker 指南](../docs/run-with-docker.md)。
 
 ## Agent CLI
 
-启动 KnowTrace API，登录并准备一个已有索引资料的知识库。CLI 使用当前用户的
-Supabase Access Token 调用现有检索接口。在 PowerShell 中输入临时令牌和 DeepSeek API Key。
+CLI 可以独立读取本地文件。在 PowerShell 中输入 DeepSeek API Key。
 
 ```powershell
 Set-Location backend
 $env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
-$env:KNOWTRACE_ACCESS_TOKEN = Read-Host 'Supabase Access Token' -MaskInput
 uv run python -m app.features.agent `
   --root "D:\projects\example" `
-  --workspace-id "<知识库 UUID>" `
-  "对照知识库里的部署说明，找出本地 README 中启动步骤的差异，给出来源和文件行号。"
+  "读取本地 README，找出启动步骤并给出行号。"
 ```
 
 - `DEEPSEEK_API_KEY` 或 `AGENT_API_KEY` 配合默认端点 `https://api.deepseek.com` 和模型
@@ -79,16 +60,17 @@ uv run python -m app.features.agent --root "D:\projects\example" --undo "<回退
 
 ### 在 Web 工作台运行
 
-本机模式使用 `pnpm dev:local`。默认在当前仓库的 Git 工作树中执行任务，界面直接提交。
-Agent 的历史和审批保存在本机自动初始化的 SQLite，知识库和登录继续使用现有 Supabase。
+本机模式使用 `pnpm dev:local`。会话、权限和审批保存在本机 SQLite。
+「只读」在默认项目内读取。默认「项目工作树」在隔离的 Git 工作树中执行和检查。
+「完全访问」允许当前系统用户在本机磁盘上读取、修改 UTF-8 文本和新建文件或空文件夹。外部路径会在审批预览中显示。
 启动前可选设 `LOCAL_AGENT_ROOT` 指定另一个 Git 仓库，或设 `LOCAL_AGENT_COMMANDS` 指定验证命令清单。
 如需本机模型档案，可同时设置 `LOCAL_AGENT_MODEL_CONFIG` 和 `LOCAL_AGENT_PROFILE`。
 
-在任务框输入「在桌面新建一个 123.txt」，内置执行器会定位当前系统用户的桌面并显示新建空文件的预览。
-确认后执行一次独占创建，遇到同名文件会保留原文件。该操作直接使用本地文件系统，无需模型 API。
-如需回退，用本地 CLI 指定桌面目录为 `--root`，并传入执行记录中的 `--undo` ID。回退前会核对文件版本并要求确认。
+选择「完全访问」后，输入「在 D 盘创建一个空文件夹，名为 AgentDemo」可预览 `D:\AgentDemo`。也可以输入「在桌面新建一个 123.txt」。这两类明确任务无需调用模型。
+确认后执行一次独占创建，遇到同名路径会保留原有内容。
+如需回退，用本地 CLI 指定目标文件或文件夹的父目录为 `--root`，并传入执行记录中的 `--undo` ID。回退前会核对目标版本并要求确认。
 
-#### 托管模式
+#### 旧版托管模式
 
 先应用 [Agent 任务迁移](../supabase/migrations/20261118000000_create_agent_runs.sql)，并部署包含 Agent
 接口的 FastAPI。启动本地执行器前，用前面的配置设置模型和 `KNOWTRACE_ACCESS_TOKEN`。

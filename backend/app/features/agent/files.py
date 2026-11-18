@@ -42,7 +42,7 @@ def _excluded(name: str) -> bool:
     )
 
 
-def _path_parts(path: str) -> tuple[str, ...]:
+def _path_parts(path: str, *, allow_protected: bool = False) -> tuple[str, ...]:
     windows_path = PureWindowsPath(path)
     if windows_path.anchor:
         raise ValueError("请使用相对于授权目录的路径。")
@@ -52,7 +52,7 @@ def _path_parts(path: str) -> tuple[str, ...]:
         or part.rstrip(" .") != part
         or PureWindowsPath(part).is_reserved()
         or any(character in '<>:"|?*' or ord(character) < 32 for character in part)
-        or _excluded(part)
+        or (not allow_protected and _excluded(part))
         for part in parts
     ):
         raise ValueError("路径超出授权范围或包含受保护的名称。")
@@ -80,21 +80,22 @@ class TextFile:
 
 
 class WorkspaceFiles:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, allow_protected: bool = False) -> None:
         self.root = root.resolve(strict=True)
+        self.allow_protected = allow_protected
         if not self.root.is_dir():
             raise ValueError("授权路径必须是目录。")
 
     def _target(self, path: str, *, directory: bool) -> Path:
         target = self.root
         mode = _plain_mode(target)
-        for part in _path_parts(path):
+        for part in self._parts(path):
             target /= part
             mode = _plain_mode(target)
         target = target.resolve(strict=True)
         if not target.is_relative_to(self.root):
             raise ValueError("路径超出授权范围。")
-        _path_parts(target.relative_to(self.root).as_posix())
+        self._parts(target.relative_to(self.root).as_posix())
         if directory and not stat.S_ISDIR(mode):
             raise ValueError("目标必须是目录。")
         if not directory and not stat.S_ISREG(mode):
@@ -112,14 +113,23 @@ class WorkspaceFiles:
                     yield file.relative_to(self.root)
 
     def direct_file_path(self, name: str) -> Path:
-        if _path_parts(name) != (name,):
+        if self._parts(name) != (name,):
             raise ValueError("请只填写文件名，文件须直接位于授权目录中。")
         return self._target(".", directory=True) / name
 
-    @staticmethod
-    def _scannable(path: Path, type_check: Callable[[int], bool]) -> bool:
+    def entry_target(self, path: str) -> tuple["WorkspaceFiles", str]:
+        parts = self._parts(path)
+        if not parts:
+            raise ValueError("请指定文件或文件夹的路径。")
+        parent = self._target("/".join(parts[:-1]), directory=True)
+        return WorkspaceFiles(parent, allow_protected=self.allow_protected), parts[-1]
+
+    def _parts(self, path: str) -> tuple[str, ...]:
+        return _path_parts(path, allow_protected=self.allow_protected)
+
+    def _scannable(self, path: Path, type_check: Callable[[int], bool]) -> bool:
         try:
-            _path_parts(path.name)
+            self._parts(path.name)
             return type_check(_plain_mode(path))
         except (OSError, ValueError):
             return False
@@ -151,7 +161,7 @@ class WorkspaceFiles:
         lines = self._read_lines(path)
         end_line = min(len(lines), start_line + line_count - 1)
         return {
-            "path": "/".join(_path_parts(path)),
+            "path": "/".join(self._parts(path)),
             "start_line": start_line,
             "total_lines": len(lines),
             "lines": [_excerpt(line) for line in lines[start_line - 1 : end_line]],

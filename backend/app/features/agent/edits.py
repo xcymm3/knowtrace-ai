@@ -5,7 +5,7 @@ import stat
 from bisect import bisect_left
 from codecs import BOM_UTF8
 from collections.abc import Callable, Iterator, Sequence
-from contextlib import closing, contextmanager
+from contextlib import closing, contextmanager, suppress
 from dataclasses import dataclass
 from difflib import unified_diff
 from hashlib import sha256
@@ -60,11 +60,11 @@ def _changed_bytes(original: TextFile, old_text: str, new_text: str) -> bytes:
     return data
 
 
-def _preview(path: str, before: bytes, after: bytes) -> str:
+def _preview(path: str, before: bytes, after: bytes, *, creating: bool = False) -> str:
     diff = unified_diff(
         list(StringIO(before.decode("utf-8-sig"), newline="\n")),
         list(StringIO(after.decode("utf-8-sig"), newline="\n")),
-        fromfile=f"a/{path}",
+        fromfile="/dev/null" if creating else f"a/{path}",
         tofile=f"b/{path}",
     )
     lines = []
@@ -109,6 +109,13 @@ class FileChanges:
                         """CREATE TABLE IF NOT EXISTS changes (
                             id TEXT PRIMARY KEY, root TEXT NOT NULL, path TEXT NOT NULL,
                             before_data BLOB NOT NULL, after_hash TEXT NOT NULL
+                        )"""
+                    )
+                    db.execute(
+                        """CREATE TABLE IF NOT EXISTS created_entries (
+                            id TEXT PRIMARY KEY, root TEXT NOT NULL, path TEXT NOT NULL,
+                            device TEXT NOT NULL, inode TEXT NOT NULL, created_ns INTEGER NOT NULL,
+                            modified_ns INTEGER NOT NULL, digest TEXT
                         )"""
                     )
                     db.execute(
@@ -192,64 +199,123 @@ class FileChanges:
         }
 
     def preview_create(self, name: str) -> str:
+        return self.preview_entry(name, b"")
+
+    def preview_entry(self, name: str, data: bytes | None) -> str:
         path = self.files.direct_file_path(name)
         if os.path.lexists(path):
-            raise ValueError(f"{name} 已存在，已保留原文件。")
-        return f"--- /dev/null\n+++ b/{name}\n新建空文件（0 字节）\n"
+            raise ValueError(f"{name} 已存在，已保留原有内容。")
+        if data:
+            return _preview(name, b"", data, creating=True)
+        action = "创建空文件夹" if data is None else "新建空文件（0 字节）"
+        return f"--- /dev/null\n+++ b/{name}\n{action}\n"
 
     def create_empty(self, name: str) -> dict[str, str]:
+        return self.create_entry(name, b"")
+
+    def create_entry(self, name: str, data: bytes | None) -> dict[str, str]:
         change_id = uuid4().hex
-        path = self.files.direct_file_path(name)
+        digest = sha256(data).hexdigest() if data is not None else None
         with self._connect() as db:
             info = None
+            written_digest = digest
             try:
                 with db:
                     db.execute("BEGIN IMMEDIATE")
                     path = self.files.direct_file_path(name)
                     try:
-                        with path.open("xb") as file:
-                            info = os.fstat(file.fileno())
+                        if data is None:
+                            path.mkdir()
+                            info = path.lstat()
+                        else:
+                            with path.open("xb", buffering=0) as file:
+                                info = os.fstat(file.fileno())
+                                written_digest = sha256(b"").hexdigest()
+                                written = file.write(data)
+                                written_digest = sha256(data[:written]).hexdigest()
+                                if written != len(data):
+                                    raise OSError("Incomplete file write")
+                                os.fsync(file.fileno())
+                            current = path.lstat()
+                            if not os.path.samestat(info, current):
+                                raise ValueError("目标在创建期间已被替换。")
+                            info = current
                     except FileExistsError as error:
-                        raise ValueError(f"审批后检测到 {name} 已存在，已保留原文件。") from error
+                        raise ValueError(f"审批后检测到 {name} 已存在，已保留原有内容。") from error
                     db.execute(
-                        "INSERT INTO created_files VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (change_id, self._root_key, name, *_file_version(info)),
+                        "INSERT INTO created_entries VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (change_id, self._root_key, name, *_file_version(info), digest),
                     )
             except (sqlite3.Error, OSError, ValueError):
-                if info is not None and self._is_created_file(name, _file_version(info)):
-                    path.unlink(missing_ok=True)
+                if info is not None:
+                    with suppress(FileNotFoundError):
+                        current = path.lstat()
+                        if os.path.samestat(info, current) and self._is_created_entry(
+                            name, _file_version(current), written_digest
+                        ):
+                            if data is None:
+                                path.rmdir()
+                            else:
+                                path.unlink()
                 raise
         return {"status": "applied", "path": name, "change_id": change_id}
 
-    def _is_created_file(self, name: str, version: tuple[str, str, int, int]) -> bool:
+    def _is_created_entry(
+        self, name: str, version: tuple[str, str, int, int], digest: str | None
+    ) -> bool:
         try:
-            info = self.files.direct_file_path(name).lstat()
+            path = self.files.direct_file_path(name)
+            info = path.lstat()
+            if _file_version(info) != version:
+                return False
+            if digest is None:
+                return stat.S_ISDIR(info.st_mode) and not any(path.iterdir())
+            if stat.S_ISREG(info.st_mode):
+                return sha256(self.files.read_text_file(name).data).hexdigest() == digest
         except FileNotFoundError:
             return False
-        return stat.S_ISREG(info.st_mode) and info.st_size == 0 and _file_version(info) == version
+        return False
 
-    def _undo_created_file(
+    def _undo_created_entry(
         self, db: sqlite3.Connection, change_id: UUID, confirm: Callable[[str], bool]
     ) -> bool:
         row = db.execute(
-            "SELECT path, device, inode, created_ns, modified_ns FROM created_files "
+            "SELECT path, device, inode, created_ns, modified_ns, digest FROM created_entries "
             "WHERE id = ? AND root = ?",
             (change_id.hex, self._root_key),
         ).fetchone()
         if row is None:
-            raise ValueError("当前目录没有对应的回退记录。")
-        name, device, inode, created, modified = row
+            legacy = db.execute(
+                "SELECT path, device, inode, created_ns, modified_ns FROM created_files "
+                "WHERE id = ? AND root = ?",
+                (change_id.hex, self._root_key),
+            ).fetchone()
+            if legacy is None:
+                raise ValueError("当前目录没有对应的回退记录。")
+            row = (*legacy, sha256(b"").hexdigest())
+        name, device, inode, created, modified, digest = row
         version = (device, inode, created, modified)
         changed = f"{name} 已修改、替换或删除，无法回退。"
-        if not self._is_created_file(name, version):
+        if not self._is_created_entry(name, version, digest):
             raise ValueError(changed)
-        if not confirm(f"--- a/{name}\n+++ /dev/null\n删除由 Agent 新建的空文件\n"):
+        kind = (
+            "空文件夹"
+            if digest is None
+            else "空文件"
+            if digest == sha256(b"").hexdigest()
+            else "文件"
+        )
+        if not confirm(f"--- a/{name}\n+++ /dev/null\n删除由 Agent 新建的{kind}\n"):
             return False
         with db:
             db.execute("BEGIN IMMEDIATE")
-            if not self._is_created_file(name, version):
+            if not self._is_created_entry(name, version, digest):
                 raise ValueError(changed)
-            self.files.direct_file_path(name).unlink()
+            path = self.files.direct_file_path(name)
+            if digest is None:
+                path.rmdir()
+            else:
+                path.unlink()
         return True
 
     def _replace_all(self, edits: Sequence[PreparedEdit]) -> None:
@@ -322,7 +388,7 @@ class FileChanges:
                 ).fetchall()
             )
             if not rows:
-                return self._undo_created_file(db, change_id, confirm)
+                return self._undo_created_entry(db, change_id, confirm)
             prepared = []
             for path, original, after_hash in rows:
                 current = self.files.read_text_file(path)

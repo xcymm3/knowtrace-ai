@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -6,6 +7,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const apiPort = "8000";
 const webPort = "3001";
 const address = "127.0.0.1";
+const localToken = randomBytes(32).toString("hex");
 const children = new Set();
 let stopping = false;
 
@@ -47,6 +49,7 @@ start("uv", [
 ], join(repo, "backend"), {
   TASK_EXECUTION_MODE: "inline",
   LOCAL_AGENT_ROOT: resolve(process.env.LOCAL_AGENT_ROOT || repo),
+  LOCAL_AGENT_TOKEN: localToken,
 });
 start(process.execPath, [
   join(repo, "node_modules", "next", "dist", "bin", "next"), "dev",
@@ -54,5 +57,6 @@ start(process.execPath, [
 ], repo, {
   API_PROXY_TARGET: `http://${address}:${apiPort}`,
   KNOWTRACE_LOCAL_WEB: "1",
+  LOCAL_AGENT_TOKEN: localToken,
 });
 console.log(`KnowTrace 本地工作台 http://${address}:${webPort}`);

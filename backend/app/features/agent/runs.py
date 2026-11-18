@@ -13,6 +13,7 @@ RunStatus = Literal[
 TERMINAL = {"SUCCEEDED", "FAILED", "CANCELLED"}
 MAX_DIFF = 150_000
 MAX_APPROVALS = 6
+Permission = Literal["read_only", "project", "full"]
 
 
 class RunCreate(BaseModel):
@@ -30,6 +31,8 @@ class RunSummary(BaseModel):
     status: RunStatus
     revision: int
     created_at: datetime
+    permission: Permission = "project"
+    thread_id: UUID | None = None
 
 
 class RunEvent(BaseModel):
@@ -120,16 +123,20 @@ class AgentRuns:
     def __init__(self, store: RunStore) -> None:
         self.store = store
 
-    def create(self, workspace_id: UUID, payload: RunCreate) -> Row:
+    def create(self, workspace_id: UUID, payload: RunCreate, **metadata: Any) -> Row:
         if payload.executor_id is None:
             raise ApiError(422, "AGENT_EXECUTOR_REQUIRED", "请输入执行器 ID。")
         row = self.store.insert(
-            {"workspace_id": str(workspace_id), **payload.model_dump(mode="json")}
+            {"workspace_id": str(workspace_id), **payload.model_dump(mode="json"), **metadata}
         )
         if row is not None:
             return row
         existing = self.get(workspace_id, payload.id)
-        if existing["task"] != payload.task or existing["executor_id"] != str(payload.executor_id):
+        if (
+            existing["task"] != payload.task
+            or existing["executor_id"] != str(payload.executor_id)
+            or any(existing.get(key) != value for key, value in metadata.items())
+        ):
             raise _conflict("该任务 ID 已被使用。")
         return existing
 

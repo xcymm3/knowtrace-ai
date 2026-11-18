@@ -13,16 +13,21 @@ function apiTarget() {
 }
 
 async function proxyToApi(request: NextRequest, { params }: RouteContext) {
-  if (process.env.KNOWTRACE_LOCAL_WEB === "1") {
+  const { path } = await params;
+  const localAgent = path[0] === "agent";
+  const localWeb = process.env.KNOWTRACE_LOCAL_WEB === "1";
+  if (localWeb || localAgent) {
     const host = request.headers.get("host") ?? "";
-    if (!/^(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(host)) {
+    const origin = request.headers.get("origin");
+    const fetchSite = request.headers.get("sec-fetch-site");
+    if (!localWeb || !/^(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(host) ||
+      (localAgent && (origin && origin !== `http://${host}` || fetchSite && !["same-origin", "none"].includes(fetchSite)))) {
       return Response.json(
         { error: { code: "LOCAL_HOST_REQUIRED", message: "请从本机地址访问工作台。" } },
         { status: 403 },
       );
     }
   }
-  const { path } = await params;
   const target = new URL(
     `${apiTarget()}/api/v1/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,
   );
@@ -34,6 +39,10 @@ async function proxyToApi(request: NextRequest, { params }: RouteContext) {
   headers.delete("content-length");
   headers.delete("transfer-encoding");
   headers.delete("expect");
+  headers.delete("x-knowtrace-local");
+  if (localAgent && process.env.LOCAL_AGENT_TOKEN) {
+    headers.set("x-knowtrace-local", process.env.LOCAL_AGENT_TOKEN);
+  }
 
   try {
     const response = await fetch(target, {
@@ -55,7 +64,7 @@ async function proxyToApi(request: NextRequest, { params }: RouteContext) {
       {
         error: {
           code: "API_UNAVAILABLE",
-          message: "本机 FastAPI 服务不可用，请确认 Docker Compose 已启动。",
+          message: "本机 Agent 服务不可用，请确认 pnpm dev:local 已启动。",
         },
       },
       { status: 502 },
