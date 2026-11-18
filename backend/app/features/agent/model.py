@@ -1,4 +1,5 @@
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -6,6 +7,32 @@ import httpx
 from pydantic import BaseModel, Field, ValidationError
 
 from app.features.agent.runtime import AgentError, Message, ToolCall
+
+
+@asynccontextmanager
+async def model_stream(
+    client: httpx.AsyncClient, url: str, headers: dict[str, str], payload: dict[str, Any]
+) -> AsyncIterator[httpx.Response]:
+    try:
+        async with client.stream(
+            "POST", url, headers=headers, json=payload, follow_redirects=False
+        ) as response:
+            response.raise_for_status()
+            yield response
+    except httpx.HTTPStatusError as error:
+        raise AgentError(f"模型服务返回 HTTP {error.response.status_code}。") from error
+    except httpx.RequestError as error:
+        raise AgentError("模型服务连接失败或响应中断。") from error
+
+
+async def stream_data(response: httpx.Response) -> AsyncIterator[str]:
+    parts: list[str] = []
+    async for line in response.aiter_lines():
+        if line.startswith("data:"):
+            parts.append(line[5:].removeprefix(" "))
+        elif not line and parts:
+            yield "\n".join(parts)
+            parts.clear()
 
 
 class _FunctionDelta(BaseModel):
@@ -74,11 +101,20 @@ def _message_payload(message: Message) -> dict[str, Any]:
 class ChatCompletionsModel:
     """OpenAI-compatible streaming adapter that preserves DeepSeek thinking messages."""
 
-    def __init__(self, client: httpx.AsyncClient, base_url: str, api_key: str, model: str) -> None:
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        api_key: str,
+        model: str,
+        *,
+        token_field: str = "max_tokens",
+    ) -> None:
         self._client = client
         self._url = f"{base_url.rstrip('/')}/chat/completions"
         self._api_key = api_key
         self._model = model
+        self._token_field = token_field
 
     async def complete(
         self,
@@ -89,23 +125,15 @@ class ChatCompletionsModel:
         payload = {
             "model": self._model,
             "messages": [_message_payload(message) for message in messages],
-            "tools": tools,
             "stream": True,
-            "max_tokens": 4096,
+            self._token_field: 4096,
         }
+        if tools:
+            payload["tools"] = tools
+        headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         try:
-            async with self._client.stream(
-                "POST",
-                self._url,
-                headers={"Authorization": f"Bearer {self._api_key}"},
-                json=payload,
-            ) as response:
-                response.raise_for_status()
+            async with model_stream(self._client, self._url, headers, payload) as response:
                 return await self._read_stream(response, on_text)
-        except httpx.HTTPStatusError as error:
-            raise AgentError(f"模型服务返回 HTTP {error.response.status_code}。") from error
-        except httpx.RequestError as error:
-            raise AgentError("模型服务连接失败或响应中断。") from error
         except ValidationError as error:
             raise AgentError("模型返回了无效的流式数据。") from error
 
@@ -117,11 +145,8 @@ class ChatCompletionsModel:
         finish_reason: str | None = None
         done = False
 
-        async for line in response.aiter_lines():
-            if not line.startswith("data:"):
-                continue
-            data = line[5:].strip()
-            if data == "[DONE]":
+        async for data in stream_data(response):
+            if data.strip() == "[DONE]":
                 done = True
                 break
             chunk = _Chunk.model_validate_json(data)

@@ -56,6 +56,15 @@ class _Check(_Arguments):
     name: str = Field(min_length=1, max_length=40)
 
 
+def _parameters(arguments: type[BaseModel]) -> dict[str, Any]:
+    schema = arguments.model_json_schema()
+    if arguments is _BatchPatch:
+        # Inline the array item so gateways can pass the full shape to the model.
+        schema.pop("$defs", None)
+        schema["properties"]["edits"]["items"] = _FilePatch.model_json_schema()
+    return schema
+
+
 _TOOLS = {
     "search_knowledge": (_KnowledgeQuery, "从当前知识库检索片段、来源编号和文件名。"),
     "list_files": (_FileList, "列出授权目录下的相对文件路径，可指定子目录。"),
@@ -127,7 +136,8 @@ class WorkspaceTools:
         if apply_patches is not None:
             self._definitions["apply_patches"] = (
                 _BatchPatch,
-                "提出一批相关文件的 diff，每个现有文本文件可提供一处唯一的原文替换。",
+                "提出一批相关文件的 diff。每个文件只能出现一次，old_text 须取自该文件并唯一匹配，"
+                "new_text 须与原文不同。批次失败时根据指出的文件修正。",
             )
         if verification and verification.commands:
             names = ", ".join(verification.commands)
@@ -144,7 +154,7 @@ class WorkspaceTools:
                 "function": {
                     "name": name,
                     "description": description,
-                    "parameters": arguments.model_json_schema(),
+                    "parameters": _parameters(arguments),
                 },
             }
             for name, (arguments, description) in self._definitions.items()
@@ -171,8 +181,11 @@ class WorkspaceTools:
             return json.dumps({"error": "该工具未授权。"}, ensure_ascii=False)
         try:
             arguments = definition[0].model_validate_json(tool_call.arguments).model_dump()
-        except ValidationError:
-            return json.dumps({"error": "工具参数无效，请按工具定义重试。"}, ensure_ascii=False)
+        except ValidationError as error:
+            field = error.errors(include_input=False, include_url=False)[0]
+            location = ".".join(map(str, field["loc"]))[:80] or "arguments"
+            message = f"工具参数无效：{location} · {field['msg']}。请按工具定义重试。"
+            return json.dumps({"error": message}, ensure_ascii=False)
         if tool_call.name == "search_knowledge":
             result = await self._search_knowledge(**arguments)
         else:

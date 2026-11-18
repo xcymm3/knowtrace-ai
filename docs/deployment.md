@@ -36,3 +36,65 @@ Vercel 适合承载 Next.js 前端和短生命周期的 FastAPI 路由，但不�
 4. 不要把任何 `SUPABASE_SERVICE_ROLE_KEY`、Embedding Key 或 LLM Key 配置为 `NEXT_PUBLIC_*`。
 
 现有 `vercel.json` 描述前端与 API 路由关系；容器模式仍是完整异步处理与横向扩展的推荐方案。
+
+## Agent 模型档案
+
+Agent 模型在执行 CLI 的本机配置。Web 工作台的 `--serve` 执行器同样使用本机选择的档案。
+知识库的 Embedding 和 Web 普通问答仍由 FastAPI 的 `EMBEDDING_*` 和 `LLM_*` 配置提供。
+未指定档案时，CLI 继续读取既有 `DEEPSEEK_API_KEY`、`AGENT_*` 或 `LLM_*` 配置。
+
+在本机保存一份模型档案 JSON。可按提供商公布的地址和模型 ID 修改以下示例。
+密钥只放入启动 CLI 的终端环境，JSON 中的 `api_key_env` 指向变量名。
+
+```json
+{
+  "deepseek": {
+    "protocol": "openai-chat",
+    "base_url": "https://api.deepseek.com",
+    "model": "deepseek-flash",
+    "api_key_env": "DEEPSEEK_API_KEY"
+  },
+  "local": {
+    "protocol": "openai-chat",
+    "base_url": "http://127.0.0.1:11434/v1",
+    "model": "qwen3:8b"
+  },
+  "messages": {
+    "protocol": "anthropic-messages",
+    "base_url": "https://api.siliconflow.cn",
+    "model": "deepseek-ai/DeepSeek-V4-Flash",
+    "api_key_env": "SILICONFLOW_API_KEY",
+    "auth": "bearer"
+  }
+}
+```
+
+- `openai-chat` 在基础地址后拼接 `/chat/completions`。使用 `local` 档案前，启动 Ollama 并选择
+  已安装的模型，本机服务可以省略密钥配置。若网关要求
+  使用 `max_completion_tokens`，在档案内设置 `"token_field": "max_completion_tokens"`。 [Ollama 兼容接口](https://github.com/ollama/ollama/blob/main/docs/api/openai-compatibility.mdx)
+- `anthropic-messages` 请求 `/v1/messages`，基础地址可包含已有的 `/v1` 或服务商前缀。原生
+  Anthropic 档案使用 `https://api.anthropic.com` 及对应模型 ID，默认通过 `x-api-key` 认证。
+  SiliconFlow 等使用 Bearer 的兼容服务可设置 `"auth": "bearer"`。 [SiliconFlow Messages](https://api-docs.siliconflow.cn/docs/api/messages-post) · [Anthropic Messages](https://platform.claude.com/docs/en/api/messages)
+- 远程地址使用 HTTPS。模型探测只发送合成文本和合成工具回执，无需登录知识库或指定本地项目。
+
+```powershell
+Set-Location backend
+$env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
+$env:SILICONFLOW_API_KEY = Read-Host 'SiliconFlow API Key' -MaskInput
+uv run python -m app.features.agent --model-config "D:\projects\models.json" --profile deepseek --check-model
+```
+
+`--check-model` 分别返回 `text_streaming`、`tool_calling` 和 `tool_round_trip`。探测工具往返时，
+模型须先发起结构化调用，再在下一次响应中读出执行器生成的回执。命名档案在任务启动时也会检查这条链路。
+用 `--chat "你的问题"` 可发起纯文本问答。加上 `--workspace-id` 和同一用户的 Supabase Access Token，
+即可由 CLI 预先检索知识库并在回答下方列出引用。
+
+将 `--model-config "D:\projects\models.json" --profile messages` 附加到 [本地执行器命令](../backend/README.md#在-web-工作台运行)
+或 [隔离工作树任务命令](../backend/README.md#隔离工作树和自动验证) 即可使用该档案。
+切换正在运行的 Web 执行器时，待当前任务结束后重启，再使用 `--executor-id` 复用配对 ID。
+
+可运行同一套跨协议验收，验证工具结果回传、审批写入，以及失败日志驱动的修正和复测。
+
+```powershell
+uv run --locked python -m pytest tests/test_agent_models.py
+```

@@ -159,10 +159,15 @@ class FileChanges:
         return PreparedEdit(relative, original, data, _preview(relative, original.data, data))
 
     def prepare_many(self, edits: list[dict[str, str]]) -> tuple[PreparedEdit, ...]:
-        prepared = tuple(self.prepare(**edit) for edit in edits)
+        prepared = []
+        for edit in edits:
+            try:
+                prepared.append(self.prepare(**edit))
+            except ValueError as error:
+                raise ValueError(f"{edit['path']}：{error}") from error
         if not prepared or len({edit.original.path for edit in prepared}) != len(prepared):
             raise ValueError("每个补丁批次须包含文件，每个文件只能出现一次。")
-        return prepared
+        return tuple(prepared)
 
     def apply(
         self, path: str, old_text: str, new_text: str, confirm: Callable[[str], bool]

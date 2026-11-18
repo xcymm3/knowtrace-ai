@@ -1,5 +1,5 @@
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal, Protocol
 
 
@@ -20,7 +20,8 @@ class Message:
     content: str
     tool_calls: tuple[ToolCall, ...] = ()
     tool_call_id: str | None = None
-    reasoning: str | None = None
+    reasoning: str | None = field(default=None, repr=False)
+    provider_content: tuple[dict[str, Any], ...] = field(default=(), repr=False)
 
 
 class ChatModel(Protocol):

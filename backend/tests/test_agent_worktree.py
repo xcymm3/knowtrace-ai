@@ -18,6 +18,13 @@ def test_batch_conflict_and_undo_preserve_complete_file_versions(tmp_path: Path)
     first.write_bytes(b"old one\r\n")
     second.write_bytes(b"old two\n")
     changes = FileChanges(WorkspaceFiles(root), tmp_path / "changes.sqlite3")
+    with pytest.raises(ValueError, match="two.txt：原文不匹配"):
+        changes.prepare_many(
+            [
+                {"path": "one.txt", "old_text": "old", "new_text": "new"},
+                {"path": "two.txt", "old_text": "wrong", "new_text": "new"},
+            ]
+        )
     prepared = changes.prepare_many(
         [{"path": path.name, "old_text": "old", "new_text": "new"} for path in (first, second)]
     )

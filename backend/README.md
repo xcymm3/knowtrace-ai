@@ -48,6 +48,8 @@ uv run python -m app.features.agent `
   按字面搜索并分页读取 UTF-8 文本，单文件读取上限为 256 KiB。
 - 模型服务会收到任务、检索片段和工具读取的文本。请将 `--root` 指向允许发送内容的项目目录。
   文件工具会跳过常见密钥文件、依赖目录和链接。
+- `--model-config` 与 `--profile` 可选择自定义 OpenAI Chat Completions 或 Anthropic Messages 档案。
+  `--check-model` 探测文本流和完整工具往返。只需文本时可用 `--chat`。见 [Agent 模型档案](../docs/deployment.md#agent-模型档案)。
 
 ### 修改与回退
 

@@ -190,6 +190,25 @@ def test_cli_uses_knowledge_and_local_files_with_deepseek_stream(
     assert readme.read_bytes() == before
 
 
+def test_text_chat_rag_reads_sources_without_declaring_tools(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    service = KnowledgeSearchService(_KnowledgeStore(), _Embeddings())
+    app.dependency_overrides[get_knowledge_search_service] = lambda: service
+
+    def provider(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "tools" not in payload
+        assert "[K1] 部署说明.md" in payload["messages"][-1]["content"]
+        return _sse(({"content": "启动端口为 9000 [K1]。"}, "stop"))
+
+    _configure(monkeypatch, provider)
+    assert main(["--chat", "--workspace-id", str(WORKSPACE_ID), "启动端口"]) == 0
+    output = capsys.readouterr().out
+    assert "启动端口为 9000 [K1]。" in output
+    assert f"[K1] 部署说明.md · 片段 4 · {CHUNK_ID}" in output
+
+
 @pytest.mark.parametrize("done,max_steps", [(False, 8), (True, 1)])
 def test_cli_stops_before_running_incomplete_or_over_budget_tools(
     tmp_path: Path,
