@@ -1,9 +1,11 @@
 import asyncio
 import json
+from collections.abc import Callable
+from typing import Annotated, Any
 from uuid import UUID
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, ValidationError
 
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.runtime import AgentError, ToolCall
@@ -33,6 +35,16 @@ class _FileRead(_Arguments):
     path: str = Field(min_length=1, max_length=512)
     start_line: int = Field(default=1, ge=1)
     line_count: int = Field(default=60, ge=1, le=120)
+
+
+class _FilePatch(_Arguments):
+    path: str = Field(min_length=1, max_length=512, description="现有文件的相对路径")
+    old_text: Annotated[
+        str, StringConstraints(strip_whitespace=False, min_length=1, max_length=32768)
+    ] = Field(description="从读到的文件复制、能唯一匹配的原文，保留空格和换行")
+    new_text: Annotated[str, StringConstraints(strip_whitespace=False, max_length=32768)] = Field(
+        description="替换文本，保留必要的空格和换行"
+    )
 
 
 _TOOLS = {
@@ -74,17 +86,29 @@ class KnowledgeClient:
         return data.hits[:limit]
 
 
-class ReadOnlyTools:
-    def __init__(self, knowledge: KnowledgeClient, files: WorkspaceFiles) -> None:
+class WorkspaceTools:
+    def __init__(
+        self,
+        knowledge: KnowledgeClient,
+        files: WorkspaceFiles,
+        apply_patch: Callable[..., dict[str, str]] | None = None,
+    ) -> None:
         self._knowledge = knowledge
+        self._definitions = _TOOLS.copy()
         self._file_actions = {
             "list_files": files.list_files,
             "search_files": files.search_files,
             "read_file": files.read_file,
         }
+        if apply_patch is not None:
+            self._definitions["apply_patch"] = (
+                _FilePatch,
+                "预览单个现有文本文件的替换 diff。仅在用户确认后写入并返回回退 ID。",
+            )
+            self._file_actions["apply_patch"] = apply_patch
         self.sources: dict[UUID, tuple[str, KnowledgeSearchHit]] = {}
 
-    def definitions(self) -> list[dict[str, object]]:
+    def definitions(self) -> list[dict[str, Any]]:
         return [
             {
                 "type": "function",
@@ -94,7 +118,7 @@ class ReadOnlyTools:
                     "parameters": arguments.model_json_schema(),
                 },
             }
-            for name, (arguments, description) in _TOOLS.items()
+            for name, (arguments, description) in self._definitions.items()
         ]
 
     async def _search_knowledge(self, query: str, limit: int) -> dict[str, object]:
@@ -113,7 +137,7 @@ class ReadOnlyTools:
         return {"matches": matches}
 
     async def call(self, tool_call: ToolCall) -> str:
-        definition = _TOOLS.get(tool_call.name)
+        definition = self._definitions.get(tool_call.name)
         if definition is None:
             return json.dumps({"error": "该工具未授权。"}, ensure_ascii=False)
         try:
@@ -125,7 +149,10 @@ class ReadOnlyTools:
         else:
             try:
                 action = self._file_actions[tool_call.name]
-                result = await asyncio.to_thread(action, **arguments)
+                if tool_call.name == "apply_patch":
+                    result = action(**arguments)
+                else:
+                    result = await asyncio.to_thread(action, **arguments)
             except (OSError, RuntimeError):
                 result = {"error": "无法访问指定的本地路径。"}
             except ValueError as error:

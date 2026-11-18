@@ -23,7 +23,7 @@ uv run arq app.worker.WorkerSettings
 
 访问 `http://localhost:8000/docs` 查看 OpenAPI 文档。
 
-## 只读 Agent CLI
+## Agent CLI
 
 启动 KnowTrace API，登录并准备一个已有索引资料的知识库。CLI 使用当前用户的
 Supabase Access Token 调用现有检索接口。在 PowerShell 中输入临时令牌和 DeepSeek API Key。
@@ -48,6 +48,29 @@ uv run python -m app.features.agent `
   按字面搜索并分页读取 UTF-8 文本，单文件读取上限为 256 KiB。
 - 模型服务会收到任务、检索片段和工具读取的文本。请将 `--root` 指向允许发送内容的项目目录。
   文件工具会跳过常见密钥文件、依赖目录和链接。
+
+### 修改与回退
+
+CLI 默认只读。给任务加上 `--edit` 后，Agent 可以对已有 UTF-8 文本文件提出单文件补丁。
+终端显示 diff 后，输入 `y` 才会重新检查原始字节并写入。回车或其他输入会拒绝变更。
+
+```powershell
+uv run python -m app.features.agent `
+  --root "D:\projects\example" `
+  --workspace-id "<知识库 UUID>" `
+  --edit "根据知识库中的部署说明，修正本地 README 的启动步骤。"
+```
+
+写入成功后会显示回退 ID。使用相同的 `--root`，预览并确认反向 diff 后即可离线回退。
+回退只在文件内容仍与该次写入的结果一致时执行，以免覆盖后续改动。
+
+```powershell
+uv run python -m app.features.agent --root "D:\projects\example" --undo "<回退 ID>"
+```
+
+回退记录保存原始文件内容。Windows 默认保存在 `%LOCALAPPDATA%\KnowTrace\agent`，其他系统使用
+`$XDG_STATE_HOME/knowtrace/agent` 或 `~/.local/state/knowtrace/agent`。
+可以用 `KNOWTRACE_AGENT_STATE_DIR` 指定其他位置。Git 仓库可照常用 `git diff` 检查改动。
 
 ## 核心接口
 

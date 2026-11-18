@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import re
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from uuid import UUID
 
@@ -10,10 +11,11 @@ from pydantic import AliasChoices, Field, SecretStr, ValidationError
 from pydantic_settings import BaseSettings
 
 from app.core.config import Settings
+from app.features.agent.edits import FileChanges, journal_path
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.model import ChatCompletionsModel
 from app.features.agent.runtime import AgentError, run_agent
-from app.features.agent.tools import KnowledgeClient, ReadOnlyTools
+from app.features.agent.tools import KnowledgeClient, WorkspaceTools
 
 
 class CliSettings(BaseSettings):
@@ -69,6 +71,47 @@ def _console(text: str) -> str:
     return re.sub(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", "", text)
 
 
+def _workspace_files(root: Path) -> WorkspaceFiles:
+    try:
+        return WorkspaceFiles(root)
+    except (OSError, RuntimeError, ValueError) as error:
+        raise AgentError("授权路径必须是当前用户可访问的目录。") from error
+
+
+def _confirm(diff: str) -> bool:
+    print(f"\n{_console(diff)}", end="", flush=True)
+    try:
+        return input("确认应用以上变更？[y/N] ").strip().casefold() == "y"
+    except EOFError:
+        return False
+
+
+def _patch_tool(files: WorkspaceFiles) -> Callable[..., dict[str, str]]:
+    changes = FileChanges(files, journal_path())
+
+    def apply_patch(path: str, old_text: str, new_text: str) -> dict[str, str]:
+        result = changes.apply(path, old_text, new_text, _confirm)
+        if result["status"] == "applied":
+            print(
+                f"\n已写入 {_console(result['path'])} · 回退 ID {result['change_id']}",
+                flush=True,
+            )
+        return result
+
+    return apply_patch
+
+
+def _undo(root: Path, change_id: UUID) -> None:
+    changes = FileChanges(_workspace_files(root), journal_path())
+    try:
+        restored = changes.undo(change_id, _confirm)
+    except OSError as error:
+        raise AgentError("无法访问本地文件或回退记录。") from error
+    except ValueError as error:
+        raise AgentError(str(error)) from error
+    print("已回退该次修改。" if restored else "已取消回退。")
+
+
 async def _run(args: argparse.Namespace) -> None:
     settings = CliSettings()
     token = settings.knowtrace_access_token
@@ -77,17 +120,14 @@ async def _run(args: argparse.Namespace) -> None:
     model_url, api_key, model_name = settings.model_connection()
     model_url = _http_url(model_url, "模型服务")
     knowledge_url = _http_url(args.api_base_url or settings.knowtrace_api_base_url, "KnowTrace")
-    try:
-        files = WorkspaceFiles(args.root)
-    except (OSError, RuntimeError, ValueError) as error:
-        raise AgentError("授权路径必须是当前用户可访问的目录。") from error
+    files = _workspace_files(args.root)
 
     async with httpx.AsyncClient(timeout=httpx.Timeout(90, connect=10)) as client:
         model = ChatCompletionsModel(client, model_url, api_key, model_name)
         knowledge = KnowledgeClient(
             client, knowledge_url, args.workspace_id, token.get_secret_value().strip()
         )
-        tools = ReadOnlyTools(knowledge, files)
+        tools = WorkspaceTools(knowledge, files, _patch_tool(files) if args.edit else None)
         await run_agent(
             model,
             tools,
@@ -95,6 +135,7 @@ async def _run(args: argparse.Namespace) -> None:
             max_steps=args.max_steps,
             on_text=lambda delta: print(_console(delta), end="", flush=True),
             on_tool=lambda name: print(f"\n[工具] {_console(name)}", file=sys.stderr, flush=True),
+            edit=args.edit,
         )
 
     print()
@@ -111,18 +152,28 @@ async def _run(args: argparse.Namespace) -> None:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="python -m app.features.agent",
-        description="通过知识库和本地文件回答问题的只读 Agent",
+        description="结合知识库查询和修改本地文件的 Agent",
     )
     parser.add_argument("--root", type=Path, required=True, help="授权读取的本地目录")
-    parser.add_argument("--workspace-id", type=UUID, required=True, help="KnowTrace 知识库 ID")
+    parser.add_argument("--workspace-id", type=UUID, help="KnowTrace 知识库 ID")
     parser.add_argument("--api-base-url", help="KnowTrace API 基础地址，默认 http://127.0.0.1:8000")
     parser.add_argument("--max-steps", type=int, default=8, metavar="N", help="模型请求轮数上限")
-    parser.add_argument("task", help="交给 Agent 的任务")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--edit", action="store_true", help="启用经确认的文件修改")
+    mode.add_argument("--undo", type=UUID, metavar="ID", help="按修改 ID 预览和回退")
+    parser.add_argument("task", nargs="?", help="交给 Agent 的任务")
     args = parser.parse_args(argv)
-    if not 1 <= args.max_steps <= 20 or not 1 <= len(args.task.strip()) <= 8000:
-        parser.error("轮数须在 1–20 之间，任务须包含 1–8000 个字符。")
     try:
-        asyncio.run(_run(args))
+        if args.undo is not None:
+            if args.task is not None:
+                parser.error("回退只需指定 --root 和 --undo ID。")
+            _undo(args.root, args.undo)
+        else:
+            if args.workspace_id is None:
+                parser.error("运行 Agent 须提供 --workspace-id。")
+            if not 1 <= args.max_steps <= 20 or not 1 <= len((args.task or "").strip()) <= 8000:
+                parser.error("轮数须在 1–20 之间，任务须包含 1–8000 个字符。")
+            asyncio.run(_run(args))
     except ValidationError:
         print("Agent 环境配置格式无效。", file=sys.stderr)
         return 2

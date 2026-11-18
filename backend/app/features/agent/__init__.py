@@ -1,1 +1,1 @@
-"""Read-only local agent for KnowTrace."""
+"""Local agent for KnowTrace."""

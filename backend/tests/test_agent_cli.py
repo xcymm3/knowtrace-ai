@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 from collections.abc import Callable
 from pathlib import Path
@@ -237,13 +238,7 @@ def test_file_tools_enforce_boundaries_and_paginate(tmp_path: Path) -> None:
         files.read_file("binary.txt", 1, 1)
 
 
-def test_file_tools_do_not_follow_links(tmp_path: Path) -> None:
-    root = tmp_path / "workspace"
-    root.mkdir()
-    target = tmp_path / "outside"
-    target.mkdir()
-    (target / "data.txt").write_text("external marker", encoding="utf-8")
-    link = root / "link"
+def _link(link: Path, target: Path) -> None:
     if os.name == "nt":
         subprocess.run(
             [
@@ -265,9 +260,199 @@ def test_file_tools_do_not_follow_links(tmp_path: Path) -> None:
         )
     else:
         link.symlink_to(target, target_is_directory=True)
+
+
+def test_file_tools_do_not_follow_links(tmp_path: Path) -> None:
+    root = tmp_path / "workspace"
+    root.mkdir()
+    target = tmp_path / "outside"
+    target.mkdir()
+    (target / "data.txt").write_text("external marker", encoding="utf-8")
+    _link(root / "link", target)
     files = WorkspaceFiles(root)
 
     with pytest.raises(ValueError, match="符号链接"):
         files.read_file("link/data.txt", 1, 1)
     assert files.search_files("marker", ".", 10)["matches"] == []
     assert files.list_files(".", 10)["files"] == []
+
+
+def _git(root: Path, *args: str) -> bytes:
+    return subprocess.check_output(["git", "-C", str(root), *args], stderr=subprocess.PIPE)
+
+
+@pytest.fixture
+def edit_repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    root = tmp_path / "repo"
+    root.mkdir()
+    _git(root, "init", "--quiet")
+    _git(root, "config", "core.autocrlf", "false")
+    (root / "README.md").write_bytes("# 示例\r\n  端口 8000\r\n".encode("utf-8-sig"))
+    (root / "notes.txt").write_text("keep my edit", encoding="utf-8")
+    _git(root, "add", "README.md", "notes.txt")
+    monkeypatch.setenv("KNOWTRACE_AGENT_STATE_DIR", str(tmp_path / "state"))
+    return root
+
+
+def _patch_provider(
+    path: str, results: list[dict], *, old_text: str = "  端口 8000\n"
+) -> Callable[[httpx.Request], httpx.Response]:
+    def provider(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert "apply_patch" in {tool["function"]["name"] for tool in payload["tools"]}
+        messages = payload["messages"]
+        if messages[-1]["role"] == "user":
+            arguments = json.dumps(
+                {"path": path, "old_text": old_text, "new_text": "  端口 9000\n"}
+            )
+            return _sse(({"tool_calls": [_tool("apply_patch", "patch", arguments)]}, "tool_calls"))
+        assert messages[-1]["tool_call_id"] == "patch"
+        results.append(json.loads(messages[-1]["content"]))
+        return _sse(({"content": "检查结束。"}, "stop"))
+
+    return provider
+
+
+def test_cli_edit_and_offline_undo_in_git_repo(
+    edit_repo: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    readme = edit_repo / "README.md"
+    before = readme.read_bytes()
+    after = before.replace(b"8000", b"9000")
+    unrelated = edit_repo / "notes.txt"
+    unrelated.write_text("independent user edit", encoding="utf-8")
+    results: list[dict] = []
+
+    def answer(_: str) -> str:
+        output = capsys.readouterr().out
+        assert "--- a/README.md\n+++ b/README.md" in output
+        assert "-  端口 8000" in output and "+  端口 9000" in output
+        assert readme.read_bytes() == before
+        return "y"
+
+    _configure(monkeypatch, _patch_provider("README.md", results))
+    monkeypatch.setattr("builtins.input", answer)
+    assert main(["--edit", *_argv(edit_repo)]) == 0
+    (result,) = results
+    assert result["status"] == "applied"
+    change_id = result["change_id"]
+    assert re.fullmatch(r"[0-9a-f]{32}", change_id)
+    assert f"回退 ID {change_id}" in capsys.readouterr().out
+    assert readme.read_bytes() == after
+    assert _git(edit_repo, "diff", "--name-only").splitlines() == [b"README.md", b"notes.txt"]
+
+    def undo_answer(_: str) -> str:
+        output = capsys.readouterr().out
+        assert "-  端口 9000" in output and "+  端口 8000" in output
+        assert readme.read_bytes() == after
+        return "y"
+
+    monkeypatch.setattr("builtins.input", undo_answer)
+    monkeypatch.delenv("KNOWTRACE_ACCESS_TOKEN")
+    monkeypatch.setattr(
+        "app.features.agent.cli.CliSettings", lambda: pytest.fail("离线回退无需模型")
+    )
+    assert main(["--root", str(edit_repo), "--undo", change_id]) == 0
+    assert readme.read_bytes() == before
+    assert unrelated.read_text(encoding="utf-8") == "independent user edit"
+    assert _git(edit_repo, "diff", "--name-only").splitlines() == [b"notes.txt"]
+    assert set(_git(edit_repo, "status", "--short", "--untracked-files=all").splitlines()) == {
+        b"AM notes.txt",
+        b"A  README.md",
+    }
+
+
+@pytest.mark.parametrize("approve", [False, True])
+def test_cli_rejects_denied_or_stale_preview(
+    edit_repo: Path, monkeypatch: pytest.MonkeyPatch, approve: bool
+) -> None:
+    readme = edit_repo / "README.md"
+    before = readme.read_bytes()
+    manual = before.replace(b"8000", b"7777")
+    results: list[dict] = []
+
+    def answer(_: str) -> str:
+        if approve:
+            readme.write_bytes(manual)
+            return "y"
+        return ""
+
+    _configure(monkeypatch, _patch_provider("README.md", results))
+    monkeypatch.setattr("builtins.input", answer)
+    assert main(["--edit", *_argv(edit_repo)]) == 0
+    if approve:
+        assert "文件在预览后已变化" in results[0]["error"]
+        assert readme.read_bytes() == manual
+    else:
+        assert results[0]["status"] == "rejected"
+        assert readme.read_bytes() == before
+    assert not (edit_repo.parent / "state").exists()
+
+
+@pytest.mark.parametrize("path", ["../outside/README.md", "link/README.md", ".git/config"])
+def test_cli_blocks_edits_outside_git_worktree(
+    edit_repo: Path, monkeypatch: pytest.MonkeyPatch, path: str
+) -> None:
+    outside = edit_repo.parent / "outside"
+    outside.mkdir()
+    target = outside / "README.md"
+    before = (edit_repo / "README.md").read_bytes()
+    target.write_bytes(before)
+    if path.startswith("link/"):
+        _link(edit_repo / "link", outside)
+    results: list[dict] = []
+    _configure(monkeypatch, _patch_provider(path, results))
+    monkeypatch.setattr("builtins.input", lambda _: pytest.fail("越界补丁不应进入确认"))
+    assert main(["--edit", *_argv(edit_repo)]) == 0
+    assert "error" in results[0]
+    assert target.read_bytes() == before
+    assert _git(edit_repo, "diff") == b""
+    assert not (edit_repo.parent / "state").exists()
+
+
+def test_cli_rechecks_path_after_preview(edit_repo: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    folder = edit_repo / "docs"
+    folder.mkdir()
+    before = (edit_repo / "README.md").read_bytes()
+    (folder / "README.md").write_bytes(before)
+    outside = edit_repo.parent / "outside"
+    outside.mkdir()
+    target = outside / "README.md"
+    target.write_bytes(before)
+    results: list[dict] = []
+
+    def answer(_: str) -> str:
+        folder.rename(edit_repo / "moved")
+        _link(folder, outside)
+        return "y"
+
+    _configure(monkeypatch, _patch_provider("docs/README.md", results))
+    monkeypatch.setattr("builtins.input", answer)
+    assert main(["--edit", *_argv(edit_repo)]) == 0
+    assert "文件在预览后已变化" in results[0]["error"]
+    assert target.read_bytes() == before
+    assert (edit_repo / "moved" / "README.md").read_bytes() == before
+    assert not (edit_repo.parent / "state").exists()
+
+
+@pytest.mark.parametrize("change_during_confirmation", [False, True])
+def test_undo_preserves_newer_file_changes(
+    edit_repo: Path, monkeypatch: pytest.MonkeyPatch, change_during_confirmation: bool
+) -> None:
+    readme = edit_repo / "README.md"
+    manual = readme.read_bytes().replace(b"8000", b"7777")
+    results: list[dict] = []
+    _configure(monkeypatch, _patch_provider("README.md", results))
+    monkeypatch.setattr("builtins.input", lambda _: "y")
+    assert main(["--edit", *_argv(edit_repo)]) == 0
+
+    def answer(_: str) -> str:
+        assert change_during_confirmation
+        readme.write_bytes(manual)
+        return "y"
+
+    if not change_during_confirmation:
+        readme.write_bytes(manual)
+    monkeypatch.setattr("builtins.input", answer)
+    assert main(["--root", str(edit_repo), "--undo", results[0]["change_id"]]) == 1
+    assert readme.read_bytes() == manual

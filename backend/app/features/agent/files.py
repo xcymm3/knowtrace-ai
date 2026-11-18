@@ -1,5 +1,6 @@
 import stat
 from collections.abc import Callable, Iterator
+from dataclasses import dataclass
 from itertools import islice
 from pathlib import Path, PureWindowsPath
 from typing import Any
@@ -26,7 +27,7 @@ _SKIPPED_NAMES = frozenset(
     }
 )
 _KEY_SUFFIXES = (".pem", ".key", ".pfx", ".p12")
-_FILE_BYTES = 256 * 1024
+MAX_TEXT_BYTES = 256 * 1024
 _SEARCH_FILES = 1000
 _LINE_CHARS = 320
 
@@ -35,7 +36,7 @@ def _excluded(name: str) -> bool:
     name = name.casefold()
     return (
         name in _SKIPPED_NAMES
-        or name.startswith((".env.", ".venv-"))
+        or name.startswith((".env.", ".venv-", ".knowtrace-edit-"))
         or name == ".env"
         or name.endswith(_KEY_SUFFIXES)
     )
@@ -69,6 +70,13 @@ def _plain_mode(path: Path) -> int:
 
 def _excerpt(line: str) -> str:
     return line if len(line) <= _LINE_CHARS else line[:_LINE_CHARS] + "…"
+
+
+@dataclass(frozen=True)
+class TextFile:
+    path: Path
+    data: bytes
+    text: str
 
 
 class WorkspaceFiles:
@@ -118,18 +126,21 @@ class WorkspaceFiles:
             "truncated": len(files) > limit,
         }
 
-    def _read_lines(self, path: str) -> list[str]:
+    def read_text_file(self, path: str) -> TextFile:
         target = self._target(path, directory=False)
         with target.open("rb") as file:
-            data = file.read(_FILE_BYTES + 1)
-        if len(data) > _FILE_BYTES:
+            data = file.read(MAX_TEXT_BYTES + 1)
+        if len(data) > MAX_TEXT_BYTES:
             raise ValueError("文件超过 256 KiB，请选择较小的文本文件。")
         if b"\x00" not in data:
             try:
-                return data.decode("utf-8-sig").splitlines()
+                return TextFile(target, data, data.decode("utf-8-sig"))
             except UnicodeDecodeError:
                 pass
         raise ValueError("文件工具仅支持 UTF-8 文本。")
+
+    def _read_lines(self, path: str) -> list[str]:
+        return self.read_text_file(path).text.splitlines()
 
     def read_file(self, path: str, start_line: int, line_count: int) -> dict[str, Any]:
         lines = self._read_lines(path)
