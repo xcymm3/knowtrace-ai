@@ -23,6 +23,32 @@ uv run arq app.worker.WorkerSettings
 
 访问 `http://localhost:8000/docs` 查看 OpenAPI 文档。
 
+## 只读 Agent CLI
+
+启动 KnowTrace API，登录并准备一个已有索引资料的知识库。CLI 使用当前用户的
+Supabase Access Token 调用现有检索接口。在 PowerShell 中输入临时令牌和 DeepSeek API Key。
+
+```powershell
+Set-Location backend
+$env:DEEPSEEK_API_KEY = Read-Host 'DeepSeek API Key' -MaskInput
+$env:KNOWTRACE_ACCESS_TOKEN = Read-Host 'Supabase Access Token' -MaskInput
+uv run python -m app.features.agent `
+  --root "D:\projects\example" `
+  --workspace-id "<知识库 UUID>" `
+  "对照知识库里的部署说明，找出本地 README 中启动步骤的差异，给出来源和文件行号。"
+```
+
+- `DEEPSEEK_API_KEY` 或 `AGENT_API_KEY` 配合默认端点 `https://api.deepseek.com` 和模型
+  `deepseek-flash` 使用。兼容网关可在自己的 `.env` 中单独设置
+  `AGENT_API_KEY`、`AGENT_BASE_URL` 和 `AGENT_MODEL`。未设置 Agent 专用配置时，
+  CLI 复用现有 `LLM_*` 连接。
+- `--api-base-url` 或 `KNOWTRACE_API_BASE_URL` 可指定 KnowTrace API，默认
+  `http://127.0.0.1:8000`。`--max-steps` 控制模型请求轮数，默认 8。
+- CLI 逐段输出模型文本，显示调用过的工具和检索片段 ID。文件工具只在指定目录内列出文件、
+  按字面搜索并分页读取 UTF-8 文本，单文件读取上限为 256 KiB。
+- 模型服务会收到任务、检索片段和工具读取的文本。请将 `--root` 指向允许发送内容的项目目录。
+  文件工具会跳过常见密钥文件、依赖目录和链接。
+
 ## 核心接口
 
 | 能力 | 接口 |
