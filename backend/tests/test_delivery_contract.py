@@ -34,7 +34,7 @@ def test_delivery_files_describe_current_knowtrace_bootstrap() -> None:
 
 def test_user_facing_materials_do_not_advertise_image_retrieval() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
-    scope = (ROOT / "docs" / "mvp-scope.md").read_text(encoding="utf-8")
+    scope = (ROOT / "docs" / "product-scope.md").read_text(encoding="utf-8")
     workspace_client = (
         ROOT / "src" / "features" / "workspace" / "workspace-client.tsx"
     ).read_text(encoding="utf-8")
