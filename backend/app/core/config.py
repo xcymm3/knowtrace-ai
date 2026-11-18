@@ -1,5 +1,6 @@
 import os
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -37,6 +38,10 @@ class Settings(BaseSettings):
     llm_api_key: str | None = None
     llm_model: str = "gpt-4.1-mini"
     llm_temperature: float = 0
+    local_agent_root: Path | None = None
+    local_agent_commands: Path | None = None
+    local_agent_model_config: Path | None = None
+    local_agent_profile: str | None = None
 
     @property
     def allowed_origins(self) -> list[str]:

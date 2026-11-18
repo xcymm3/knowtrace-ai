@@ -13,6 +13,15 @@ function apiTarget() {
 }
 
 async function proxyToApi(request: NextRequest, { params }: RouteContext) {
+  if (process.env.KNOWTRACE_LOCAL_WEB === "1") {
+    const host = request.headers.get("host") ?? "";
+    if (!/^(?:localhost|127\.0\.0\.1)(?::\d+)?$/i.test(host)) {
+      return Response.json(
+        { error: { code: "LOCAL_HOST_REQUIRED", message: "请从本机地址访问工作台。" } },
+        { status: 403 },
+      );
+    }
+  }
   const { path } = await params;
   const target = new URL(
     `${apiTarget()}/api/v1/${path.map((segment) => encodeURIComponent(segment)).join("/")}`,

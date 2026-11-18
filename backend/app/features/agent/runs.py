@@ -19,7 +19,7 @@ class RunCreate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     id: UUID
-    executor_id: UUID
+    executor_id: UUID | None = None
     task: str = Field(min_length=1, max_length=8000)
 
 
@@ -121,6 +121,8 @@ class AgentRuns:
         self.store = store
 
     def create(self, workspace_id: UUID, payload: RunCreate) -> Row:
+        if payload.executor_id is None:
+            raise ApiError(422, "AGENT_EXECUTOR_REQUIRED", "请输入执行器 ID。")
         row = self.store.insert(
             {"workspace_id": str(workspace_id), **payload.model_dump(mode="json")}
         )

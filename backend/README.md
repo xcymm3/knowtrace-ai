@@ -4,6 +4,9 @@ FastAPI 是 KnowTrace 的唯一业务 API 层。浏览器通过 Next.js 同域�
 
 ## 本地运行
 
+开发时，从仓库根目录运行 `pnpm dev:local` 启动 Web、FastAPI 和内置 Agent，然后打开
+`http://127.0.0.1:3001`。登录并选择知识库后，即可进入 **Agent 任务**。
+
 从仓库根目录复制 `.env.example` 为 `.env` 并填写连接信息后：
 
 ```powershell
@@ -75,6 +78,13 @@ uv run python -m app.features.agent --root "D:\projects\example" --undo "<回退
 可以用 `KNOWTRACE_AGENT_STATE_DIR` 指定其他位置。Git 仓库可照常用 `git diff` 检查改动。
 
 ### 在 Web 工作台运行
+
+本机模式使用 `pnpm dev:local`。默认在当前仓库的 Git 工作树中执行任务，界面直接提交。
+Agent 的历史和审批保存在本机自动初始化的 SQLite，知识库和登录继续使用现有 Supabase。
+启动前可选设 `LOCAL_AGENT_ROOT` 指定另一个 Git 仓库，或设 `LOCAL_AGENT_COMMANDS` 指定验证命令清单。
+如需本机模型档案，可同时设置 `LOCAL_AGENT_MODEL_CONFIG` 和 `LOCAL_AGENT_PROFILE`。
+
+#### 托管模式
 
 先应用 [Agent 任务迁移](../supabase/migrations/20261118000000_create_agent_runs.sql)，并部署包含 Agent
 接口的 FastAPI。启动本地执行器前，用前面的配置设置模型和 `KNOWTRACE_ACCESS_TOKEN`。

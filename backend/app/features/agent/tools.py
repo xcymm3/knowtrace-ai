@@ -1,7 +1,7 @@
 import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from typing import Annotated, Any
+from typing import Annotated, Any, Protocol
 from uuid import UUID
 
 import httpx
@@ -104,6 +104,10 @@ class KnowledgeClient:
         return data.hits[:limit]
 
 
+class KnowledgeSource(Protocol):
+    async def search(self, query: str, limit: int) -> list[KnowledgeSearchHit]: ...
+
+
 PatchTool = Callable[..., Awaitable[dict[str, str]]]
 BatchTool = Callable[[list[dict[str, str]]], Awaitable[dict[str, Any]]]
 
@@ -111,7 +115,7 @@ BatchTool = Callable[[list[dict[str, str]]], Awaitable[dict[str, Any]]]
 class WorkspaceTools:
     def __init__(
         self,
-        knowledge: KnowledgeClient,
+        knowledge: KnowledgeSource,
         files: WorkspaceFiles,
         apply_patch: PatchTool | None = None,
         *,

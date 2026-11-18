@@ -28,7 +28,7 @@ KnowTrace AI 是一个完整的 RAG 知识工作台。用户以用户名和密�
 ### 本地 Agent
 
 - 通过 DeepSeek 或兼容端点检索知识库和本地文件，给出资料来源和行号。启用编辑后可预览单文件 diff，确认写入，再按变更 ID 回退。使用方式见 [Agent CLI](backend/README.md#agent-cli)。
-- Web 工作台可创建 Agent 任务、查看工具记录和审批 diff。启动本地执行器后，文件变更在选定的本地目录执行。配置见 [在 Web 工作台运行](backend/README.md#在-web-工作台运行)。
+- `pnpm dev:local` 同时启动 Web 工作台、API 和内置执行器。登录后可发起 Agent 任务、查看工具记录和审批 diff。配置见 [在 Web 工作台运行](backend/README.md#在-web-工作台运行)。
 - 隔离工作树支持批量预览和修改文档、代码与配置。Agent 按本机清单运行验证，并可根据真实失败日志提交下一轮补丁。配置见 [隔离工作树和自动验证](backend/README.md#隔离工作树和自动验证)。
 
 ### 可恢复的任务与文件管理

@@ -3,12 +3,12 @@
 import { FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import controls from "@/app/page.module.css";
-import { AgentRunSnapshot, AgentRunStatus, AgentRunSummary, knowTraceApi } from "@/lib/knowtrace-api";
+import { AgentRunConfig, AgentRunSnapshot, AgentRunStatus, AgentRunSummary, knowTraceApi } from "@/lib/knowtrace-api";
 
 import styles from "./agent-panel.module.css";
 
 const statusText: Record<AgentRunStatus, string> = {
-  QUEUED: "等待本地执行器",
+  QUEUED: "已排队",
   RUNNING: "执行中",
   WAITING_APPROVAL: "等待审批",
   APPLYING: "正在写入",
@@ -35,13 +35,14 @@ export function AgentPanel({ workspaceId }: { workspaceId: string }) {
   const [runId, setRunId] = useState("");
   const [snapshot, setSnapshot] = useState<AgentRunSnapshot | null>(null);
   const [executor, setExecutor] = useState("");
+  const [config, setConfig] = useState<AgentRunConfig | null>(null);
   const [task, setTask] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [error, setError] = useState("");
   const selected = useRef("");
-  const pending = useRef<{ id: string; executor: string; task: string } | null>(null);
+  const pending = useRef<{ id: string; executor: string | null; task: string } | null>(null);
 
   const selectRun = useCallback((id: string) => {
     const url = new URL(window.location.href);
@@ -67,20 +68,26 @@ export function AgentPanel({ workspaceId }: { workspaceId: string }) {
 
   useEffect(() => {
     const controller = new AbortController();
-    void knowTraceApi.listAgentRuns(workspaceId, controller.signal).then((next) => {
-      if (controller.signal.aborted) return;
-      setRuns(next);
-      const fromUrl = new URL(window.location.href).searchParams.get("run");
-      const initial = next.find((run) => run.id === fromUrl) ?? next[0];
-      if (initial) {
-        selectRun(initial.id);
-        setExecutor(initial.executor_id);
+    void (async () => {
+      try {
+        const execution = await knowTraceApi.getAgentRunConfig(workspaceId, controller.signal);
+        if (controller.signal.aborted) return;
+        setConfig(execution);
+        const next = await knowTraceApi.listAgentRuns(workspaceId, controller.signal);
+        if (controller.signal.aborted) return;
+        setRuns(next);
+        const fromUrl = new URL(window.location.href).searchParams.get("run");
+        const initial = next.find((run) => run.id === fromUrl) ?? next[0];
+        if (initial) {
+          selectRun(initial.id);
+          if (execution.mode === "remote") setExecutor(initial.executor_id);
+        }
+      } catch (caught) {
+        if (!controller.signal.aborted) setError(message(caught));
+      } finally {
+        if (!controller.signal.aborted) setLoading(false);
       }
-    }).catch((caught) => {
-      if (!controller.signal.aborted) setError(message(caught));
-    }).finally(() => {
-      if (!controller.signal.aborted) setLoading(false);
-    });
+    })();
     return () => controller.abort();
   }, [selectRun, workspaceId]);
 
@@ -125,8 +132,8 @@ export function AgentPanel({ workspaceId }: { workspaceId: string }) {
   async function start(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const body = task.trim();
-    const target = executor.trim();
-    if (busy || !body || !target) return;
+    const target = config?.mode === "remote" ? executor.trim() : null;
+    if (!config || busy || !body || target === "") return;
     if (pending.current?.task !== body || pending.current.executor !== target) {
       pending.current = { id: crypto.randomUUID(), executor: target, task: body };
     }
@@ -169,22 +176,25 @@ export function AgentPanel({ workspaceId }: { workspaceId: string }) {
     <section className={styles.panel} aria-labelledby="agent-title">
       <header className={styles.heading}>
         <h2 id="agent-title">Agent 任务</h2>
-        <details>
+        {config?.mode === "local" && <p>本地工作目录 · {config.directory}</p>}
+        {config?.mode === "remote" && <details>
           <summary>连接本地执行器</summary>
           <p>在项目 backend 目录运行命令，再将终端显示的执行器 ID 填入下方。</p>
           <pre><code>{`uv run python -m app.features.agent --serve --root "<本地目录>" --workspace-id "${workspaceId}"`}</code></pre>
-        </details>
+        </details>}
       </header>
       <form className={styles.form} onSubmit={start}>
-        <label htmlFor="agent-executor">执行器 ID</label>
-        <input id="agent-executor" value={executor} onChange={(event) => setExecutor(event.target.value)}
-          required pattern={uuidPattern} placeholder="粘贴终端显示的 UUID" spellCheck={false} />
+        {config?.mode === "remote" && <>
+          <label htmlFor="agent-executor">执行器 ID</label>
+          <input id="agent-executor" value={executor} onChange={(event) => setExecutor(event.target.value)}
+            required pattern={uuidPattern} placeholder="粘贴终端显示的 UUID" spellCheck={false} />
+        </>}
         <label htmlFor="agent-task">任务</label>
         <textarea id="agent-task" value={task} onChange={(event) => setTask(event.target.value)}
           required maxLength={8000} rows={3} placeholder="例如，根据部署说明修正本地 README 的启动端口" />
-        <button className={controls.primaryButton} type="submit" disabled={busy || loading}>发起任务</button>
+        <button className={controls.primaryButton} type="submit" disabled={busy || loading || !config}>发起任务</button>
       </form>
-      {error && <p className={controls.feedbackError} role="alert">{error}</p>}
+      <div aria-live="assertive">{error && <p className={controls.feedbackError}>{error}</p>}</div>
       {runs.length > 0 && (
         <div className={styles.history}>
           <label htmlFor="agent-history">任务记录</label>

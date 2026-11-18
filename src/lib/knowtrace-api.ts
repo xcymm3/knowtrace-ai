@@ -101,6 +101,7 @@ export interface UsernameAvailability {
 }
 
 export type AgentRunStatus = TaskStatus | "WAITING_APPROVAL" | "APPLYING";
+export type AgentRunConfig = { mode: "local"; directory: string } | { mode: "remote" };
 
 export interface AgentRunSummary {
   id: string;
@@ -335,9 +336,11 @@ export const knowTraceApi = {
   streamRagAnswer,
   listAgentRuns: (workspaceId: string, signal?: AbortSignal) =>
     request<AgentRunSummary[]>(agentPath(workspaceId), { signal, cache: "no-store" }),
+  getAgentRunConfig: (workspaceId: string, signal?: AbortSignal) =>
+    request<AgentRunConfig>(`${agentPath(workspaceId)}/config`, { signal, cache: "no-store" }),
   getAgentRun: (workspaceId: string, runId: string, signal?: AbortSignal) =>
     request<AgentRunSnapshot>(agentPath(workspaceId, runId), { signal, cache: "no-store" }),
-  createAgentRun: (workspaceId: string, id: string, executorId: string, task: string) =>
+  createAgentRun: (workspaceId: string, id: string, executorId: string | null, task: string) =>
     request<AgentRunSnapshot>(agentPath(workspaceId), {
       method: "POST",
       body: JSON.stringify({ id, executor_id: executorId, task }),

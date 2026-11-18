@@ -1,7 +1,7 @@
 import asyncio
 import json
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Protocol
 from uuid import UUID, uuid4
 
 import httpx
@@ -12,12 +12,19 @@ from app.features.agent.edits import FileChanges, PreparedEdit, journal_path
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.runs import MAX_APPROVALS, MAX_DIFF, RunSnapshot
 from app.features.agent.runtime import AgentError, ChatModel, Message, ToolCall, run_agent
-from app.features.agent.tools import KnowledgeClient, WorkspaceTools
+from app.features.agent.tools import KnowledgeSource, WorkspaceTools
 from app.features.agent.worktree import create_worktree, project_rules
 
 
 class RunCancelled(AgentError):
     pass
+
+
+class RunController(Protocol):
+    async def get(self, run_id: UUID) -> RunSnapshot: ...
+    async def operation(
+        self, run_id: UUID, claim_id: UUID, action: str, **data: Any
+    ) -> RunSnapshot: ...
 
 
 class ExecutorClient:
@@ -78,7 +85,7 @@ class ExecutorClient:
 
 class LocalRun:
     def __init__(
-        self, client: ExecutorClient, run: RunSnapshot, claim_id: UUID, changes: FileChanges
+        self, client: RunController, run: RunSnapshot, claim_id: UUID, changes: FileChanges
     ) -> None:
         self.client = client
         self.id = run.id
@@ -245,12 +252,46 @@ async def execute_local(
         await asyncio.gather(agent, watcher, return_exceptions=True)
 
 
+async def run_claimed(
+    remote: RunController,
+    snapshot: RunSnapshot,
+    claim_id: UUID,
+    source: WorkspaceFiles,
+    model: ChatModel,
+    knowledge: KnowledgeSource,
+    max_steps: int,
+    commands: CommandMap,
+) -> None:
+    journal = journal_path()
+    try:
+        worktree = await asyncio.to_thread(create_worktree, source, journal.parent, snapshot.id)
+        rules = project_rules(worktree.files)
+    except (AgentError, OSError, ValueError) as error:
+        await remote.operation(snapshot.id, claim_id, "finish", error=str(error)[:500])
+        return
+    print(f"隔离工作树：{worktree.files.root}", flush=True)
+    changes = FileChanges(worktree.files, journal)
+    run = LocalRun(remote, snapshot, claim_id, changes)
+    tools = WorkspaceTools(
+        knowledge,
+        changes.files,
+        run.apply_patch,
+        apply_patches=run.apply_patches,
+        verification=Verification(worktree.files.root, commands),
+    )
+    try:
+        await run.event("message", f"工作树 {snapshot.id.hex} · 基线 {worktree.base_commit}")
+        await execute_local(run, model, tools, snapshot.task, max_steps, rules)
+    except RunCancelled:
+        pass
+
+
 async def serve(
     remote: ExecutorClient,
     executor_id: UUID,
     source: WorkspaceFiles,
     model: ChatModel,
-    knowledge: KnowledgeClient,
+    knowledge: KnowledgeSource,
     max_steps: int,
     commands: CommandMap,
 ) -> None:
@@ -263,29 +304,6 @@ async def serve(
             continue
         if snapshot.status == "RUNNING":
             print(f"已领取 Agent 任务 {snapshot.id}", flush=True)
-            journal = journal_path()
-            try:
-                worktree = await asyncio.to_thread(
-                    create_worktree, source, journal.parent, snapshot.id
-                )
-                rules = project_rules(worktree.files)
-            except (AgentError, OSError, ValueError) as error:
-                await remote.operation(snapshot.id, claim_id, "finish", error=str(error)[:500])
-                continue
-            print(f"隔离工作树：{worktree.files.root}", flush=True)
-            changes = FileChanges(worktree.files, journal)
-            run = LocalRun(remote, snapshot, claim_id, changes)
-            tools = WorkspaceTools(
-                knowledge,
-                changes.files,
-                run.apply_patch,
-                apply_patches=run.apply_patches,
-                verification=Verification(worktree.files.root, commands),
+            await run_claimed(
+                remote, snapshot, claim_id, source, model, knowledge, max_steps, commands
             )
-            try:
-                await run.event(
-                    "message", f"工作树 {snapshot.id.hex} · 基线 {worktree.base_commit}"
-                )
-                await execute_local(run, model, tools, snapshot.task, max_steps, rules)
-            except RunCancelled:
-                pass

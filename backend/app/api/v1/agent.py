@@ -1,6 +1,7 @@
 import asyncio
 from collections.abc import AsyncIterator
 from functools import lru_cache
+from hashlib import sha256
 from typing import Annotated
 from uuid import UUID
 
@@ -9,6 +10,9 @@ from fastapi.responses import StreamingResponse
 
 from app.api.auth import get_owned_workspace_id
 from app.core.config import get_settings
+from app.core.errors import ApiError
+from app.features.agent.edits import journal_path
+from app.features.agent.local_store import LOCAL_EXECUTOR_ID, LocalRunStore
 from app.features.agent.run_store import SupabaseRunStore
 from app.features.agent.runs import (
     TERMINAL,
@@ -28,7 +32,12 @@ Workspace = Annotated[UUID, Depends(get_owned_workspace_id)]
 
 @lru_cache
 def get_agent_runs() -> AgentRuns:
-    return AgentRuns(SupabaseRunStore(create_supabase_client(get_settings())))
+    settings = get_settings()
+    if settings.local_agent_root is not None:
+        root = settings.local_agent_root.resolve()
+        suffix = sha256(str(root).encode()).hexdigest()[:20]
+        return AgentRuns(LocalRunStore(journal_path().parent / f"web-agent-{suffix}.sqlite3"))
+    return AgentRuns(SupabaseRunStore(create_supabase_client(settings)))
 
 
 Runs = Annotated[AgentRuns, Depends(get_agent_runs)]
@@ -36,6 +45,8 @@ Runs = Annotated[AgentRuns, Depends(get_agent_runs)]
 
 @router.post("", response_model=RunSnapshot, status_code=201)
 def create_run(payload: RunCreate, workspace_id: Workspace, runs: Runs):
+    if isinstance(runs.store, LocalRunStore):
+        payload = payload.model_copy(update={"executor_id": LOCAL_EXECUTOR_ID})
     return runs.create(workspace_id, payload)
 
 
@@ -44,8 +55,16 @@ def list_runs(workspace_id: Workspace, runs: Runs):
     return runs.store.list(workspace_id)
 
 
+@router.get("/config")
+def run_config(workspace_id: Workspace):
+    root = get_settings().local_agent_root
+    return {"mode": "local", "directory": root.name} if root else {"mode": "remote"}
+
+
 @router.post("/claim", response_model=RunSnapshot | None)
 def claim_run(payload: Claim, workspace_id: Workspace, runs: Runs):
+    if isinstance(runs.store, LocalRunStore):
+        raise ApiError(403, "AGENT_LOCAL_EXECUTOR", "本地任务由工作台执行器领取。")
     return runs.claim(workspace_id, payload)
 
 
@@ -66,6 +85,8 @@ def cancel_run(run_id: UUID, workspace_id: Workspace, runs: Runs):
 
 @router.post("/{run_id}/executor", response_model=RunSnapshot)
 def update_run(run_id: UUID, payload: ExecutorOperation, workspace_id: Workspace, runs: Runs):
+    if isinstance(runs.store, LocalRunStore):
+        raise ApiError(403, "AGENT_LOCAL_EXECUTOR", "本地任务由工作台执行器更新。")
     return runs.execute(workspace_id, run_id, payload)
 
 
