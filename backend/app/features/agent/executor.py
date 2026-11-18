@@ -8,6 +8,7 @@ import httpx
 from pydantic import ValidationError
 
 from app.features.agent.checks import CommandMap, Verification
+from app.features.agent.desktop import DesktopFileRequest
 from app.features.agent.edits import FileChanges, journal_path
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.full_paths import FullAccessFiles
@@ -19,6 +20,12 @@ from app.features.agent.worktree import create_worktree, project_rules
 
 class RunCancelled(AgentError):
     pass
+
+
+def _file_content(content: str) -> bytes:
+    if "\x00" in content:
+        raise ValueError("新文件须为普通 UTF-8 文本。")
+    return content.encode("utf-8")
 
 
 class RunController(Protocol):
@@ -120,18 +127,19 @@ class LocalRun:
 
         return await self._apply("".join(edit.diff for edit in prepared), label, commit)
 
-    async def create_desktop_file(self, name: str) -> None:
-        label = f"桌面/{name}"
+    async def create_desktop_file(
+        self, request: DesktopFileRequest, *, desktop: WorkspaceFiles | None = None
+    ) -> None:
+        name = request.name
+        if desktop is None:
+            label = f"桌面/{name}"
+            changes = self.changes
+        else:
+            label = str(desktop.direct_file_path(name))
+            changes = FileChanges(desktop, journal_path())
         await self.event("tool_start", f"create_file · {label}")
-        diff = await asyncio.to_thread(self.changes.preview_create, name)
-        result = await self._apply(diff, label, lambda: self.changes.create_empty(name))
+        result = await self._propose_entry(changes, name, label, _file_content(request.content))
         await self.finish_creation("create_file", label, result)
-
-    async def create_full_desktop_file(self, files: WorkspaceFiles, name: str) -> None:
-        path = str(files.direct_file_path(name))
-        await self.event("tool_start", f"create_file · {path}")
-        result = await self.create_file(path, "")
-        await self.finish_creation("create_file", result["path"], result)
 
     async def finish_creation(self, tool: str, label: str, result: dict[str, str]) -> None:
         if error := result.get("error"):
@@ -159,14 +167,17 @@ class LocalRun:
         folder, name = await asyncio.to_thread(self.changes.files.entry_target, path)
         changes = FileChanges(folder, journal_path())
         label = str(folder.root / name)
+        return await self._propose_entry(changes, name, label, data)
+
+    async def _propose_entry(
+        self, changes: FileChanges, name: str, label: str, data: bytes | None
+    ) -> dict[str, str]:
         diff = await asyncio.to_thread(changes.preview_entry, name, data)
         result = await self._apply(diff, label, lambda: changes.create_entry(name, data))
         return {**result, "path": label}
 
     async def create_file(self, path: str, content: str) -> dict[str, str]:
-        if "\x00" in content:
-            raise ValueError("新文件须为普通 UTF-8 文本。")
-        return await self._create_entry(path, content.encode("utf-8"))
+        return await self._create_entry(path, _file_content(content))
 
     async def create_directory(self, path: str) -> dict[str, str]:
         return await self._create_entry(path, None)
@@ -232,6 +243,7 @@ class ReportedTools:
     def __init__(self, tools: WorkspaceTools, run: LocalRun) -> None:
         self.tools = tools
         self.run = run
+        self.write_error: str | None = None
 
     def definitions(self) -> list[dict[str, Any]]:
         return self.tools.definitions()
@@ -242,6 +254,8 @@ class ReportedTools:
         result = await self.tools.call(tool_call)
         payload = json.loads(result)
         error = payload.get("error")
+        if name in {"apply_patch", "apply_patches", "create_file", "create_directory"}:
+            self.write_error = f"{name} · {error}"[:500] if error else None
         if error:
             await self.run.event("tool_error", f"{name} · {error}")
         elif name == "run_check":
@@ -276,9 +290,10 @@ async def execute_local(
     history: tuple[Message, ...] = (),
 ) -> None:
     async def work() -> None:
+        reported_tools = ReportedTools(tools, run)
         await run_agent(
             ReportedModel(model, run),
-            ReportedTools(tools, run),
+            reported_tools,
             task,
             max_steps=max_steps,
             on_text=lambda _: None,
@@ -295,7 +310,7 @@ async def execute_local(
                 for label, hit in tools.sources.values()
             )
             await run.event("message", f"检索来源\n{sources}")
-        await run.update("finish")
+        await run.update("finish", error=reported_tools.write_error)
 
     agent = asyncio.create_task(work())
     watcher = asyncio.create_task(_watch_cancellation(run))

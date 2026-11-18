@@ -15,8 +15,8 @@ from app.api.auth import get_owned_workspace_id
 from app.api.v1 import agent, local_agent
 from app.core.config import Settings
 from app.core.errors import ApiError, register_error_handlers
-from app.features.agent import local
-from app.features.agent.desktop import desktop_file_request
+from app.features.agent import full_paths, local
+from app.features.agent.desktop import DesktopFileRequest, desktop_file_request
 from app.features.agent.edits import FileChanges
 from app.features.agent.files import WorkspaceFiles
 from app.features.agent.local_store import LocalRunStore
@@ -208,6 +208,83 @@ def test_desktop_create_respects_approval_and_scope(
 )
 def test_desktop_request_requires_explicit_file_creation(task: str) -> None:
     assert desktop_file_request(task) is None
+
+
+@pytest.mark.parametrize("quotes", [('"', '"'), ("“", "”"), ("「", "」")])
+def test_desktop_create_request_preserves_quoted_file_content(quotes: tuple[str, str]) -> None:
+    left, right = quotes
+    task = f"在桌面上创建一个样本.txt，内容写{left} 小猫\n第二行 {right}。"
+    assert desktop_file_request(task) == DesktopFileRequest("样本.txt", " 小猫\n第二行 ")
+
+
+@pytest.mark.parametrize("mode", ["direct", "alias", "missing_parent", "read_only"])
+def test_standalone_desktop_content_uses_known_folder_and_approval(tmp_path, monkeypatch, mode):
+    project = tmp_path / "project"
+    project.mkdir()
+    desktop = tmp_path / "redirected-desktop"
+    desktop.mkdir()
+    name, content = "fixture-note.txt", "  测试文本🐈\n下一行  "
+    target = desktop / name
+    monkeypatch.setattr(local, "desktop_directory", lambda: desktop)
+    monkeypatch.setattr(full_paths, "desktop_directory", lambda: desktop)
+
+    class DesktopModel:
+        async def complete(self, messages, tools, on_text):
+            if messages[-1].role == "user":
+                assert "桌面/文件名" in messages[0].content
+                path = f"桌面/不存在/{name}" if mode == "missing_parent" else f"~/Desktop/{name}"
+                args = json.dumps({"path": path, "content": content})
+                return Message("assistant", "", (ToolCall("create", "create_file", args),))
+            result = json.loads(messages[-1].content)
+            if mode == "missing_parent":
+                assert "父目录不存在" in result["error"]
+                return Message("assistant", "指定的父目录不存在。")
+            assert result["status"] == "applied"
+            return Message("assistant", "测试文件已创建。")
+
+    def model(*_):
+        assert mode in {"alias", "missing_parent"}, "明确的桌面任务应由执行器直接处理"
+        return DesktopModel()
+
+    monkeypatch.setattr(local, "local_model", model)
+    app = _local_app(project, tmp_path / "state", monkeypatch, standalone=True)
+    headers = {"X-KnowTrace-Local": "test-local-token"}
+    run_id = str(uuid4())
+    route = f"/agent/runs/{run_id}"
+    actual = (
+        f"在桌面上创建一个{name}，内容写“{content}”"
+        if mode in {"direct", "read_only"}
+        else "请在桌面保存这段测试说明。"
+    )
+    payload = {
+        "id": run_id,
+        "thread_id": run_id,
+        "task": actual,
+        "permission": "read_only" if mode == "read_only" else "full",
+    }
+    try:
+        with TestClient(app, headers=headers) as http:
+            assert http.post("/agent/runs", json=payload).status_code == 201
+            if mode in {"read_only", "missing_parent"}:
+                failed = _poll(http, route, "FAILED")
+                assert failed["approval"] is None
+                error = "完全访问" if mode == "read_only" else "父目录不存在"
+                assert any(error in event["text"] for event in failed["events"])
+                assert list(desktop.iterdir()) == []
+                return
+
+            preview = _poll(http, route, "WAITING_APPROVAL")
+            assert preview["approval"]["path"] == str(target)
+            assert "+  测试文本🐈\n+下一行  " in preview["approval"]["diff"]
+            assert list(desktop.iterdir()) == []
+            decision = {"approval_id": preview["approval"]["id"], "approved": True}
+            assert http.post(route + "/decision", json=decision).status_code == 200
+            completed = _poll(http, route, "SUCCEEDED")
+            assert completed["approval"]["change_id"]
+            assert target.read_bytes() == content.encode("utf-8")
+            assert list(project.iterdir()) == []
+    finally:
+        agent.get_agent_runs.cache_clear()
 
 
 def test_desktop_undo_preserves_file_edited_after_preview(tmp_path: Path) -> None:

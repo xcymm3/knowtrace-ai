@@ -84,10 +84,10 @@ async def _standalone(
     store: LocalRunStore,
 ) -> None:
     assert settings.local_agent_root is not None
-    desktop_name = desktop_file_request(snapshot.task)
+    desktop_request = desktop_file_request(snapshot.task)
     absolute_directory = directory_request(snapshot.task)
     if (
-        desktop_name is not None or absolute_directory is not None
+        desktop_request is not None or absolute_directory is not None
     ) and snapshot.permission != "full":
         raise AgentError("此目标位于项目目录之外。请将新任务的权限切换至「完全访问」。")
 
@@ -95,9 +95,9 @@ async def _standalone(
     files = FullAccessFiles(root) if snapshot.permission == "full" else WorkspaceFiles(root)
     changes = FileChanges(files, journal_path())
     run = LocalRun(controller, snapshot, claim_id, changes)
-    if desktop_name is not None:
-        await run.create_full_desktop_file(
-            WorkspaceFiles(desktop_directory(), allow_protected=True), desktop_name
+    if desktop_request is not None:
+        await run.create_desktop_file(
+            desktop_request, desktop=WorkspaceFiles(desktop_directory(), allow_protected=True)
         )
         return
     if absolute_directory is not None:
@@ -135,7 +135,7 @@ async def _standalone(
     )
     scope = (
         f"当前权限为完全访问。默认目录是 {files.root}，支持本机磁盘绝对路径。写入须等待用户审批。"
-        "优先使用用户明确给出的路径。"
+        "优先使用用户明确给出的路径。用户指定当前桌面时，使用「桌面/文件名」形式，由执行器解析实际桌面。"
         if full
         else f"当前权限为项目只读。读取范围为 {files.root}，不允许写入。"
     )
@@ -168,10 +168,10 @@ async def serve_local(settings: Settings, runs: AgentRuns) -> None:
                 if workspace == LOCAL_WORKSPACE_ID:
                     await _standalone(settings, client, controller, snapshot, claim_id, store)
                     continue
-                if (name := desktop_file_request(snapshot.task)) is not None:
+                if (desktop_request := desktop_file_request(snapshot.task)) is not None:
                     changes = FileChanges(WorkspaceFiles(desktop_directory()), journal_path())
                     await LocalRun(controller, snapshot, claim_id, changes).create_desktop_file(
-                        name
+                        desktop_request
                     )
                     continue
                 source = WorkspaceFiles(settings.local_agent_root)

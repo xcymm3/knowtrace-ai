@@ -198,9 +198,6 @@ class FileChanges:
             "change_id": self.commit_many((prepared,)),
         }
 
-    def preview_create(self, name: str) -> str:
-        return self.preview_entry(name, b"")
-
     def preview_entry(self, name: str, data: bytes | None) -> str:
         path = self.files.direct_file_path(name)
         if os.path.lexists(path):

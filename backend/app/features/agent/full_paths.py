@@ -3,6 +3,7 @@ import re
 from pathlib import Path
 from typing import Any
 
+from app.features.agent.desktop import desktop_directory
 from app.features.agent.files import WorkspaceFiles, _path_parts
 
 
@@ -17,13 +18,21 @@ class FullAccessFiles(WorkspaceFiles):
         parts = path.parts[1:] if path.anchor else path.parts
         for part in parts:
             _path_parts(part, allow_protected=True)
+        if not path.anchor and parts:
+            if parts[0] == "桌面":
+                return desktop_directory().joinpath(*parts[1:])
+            if len(parts) >= 2 and parts[0] == "~" and parts[1].casefold() == "desktop":
+                return desktop_directory().joinpath(*parts[2:])
         return path if path.is_absolute() else self.root / path
 
     def entry_target(self, path: str) -> tuple[WorkspaceFiles, str]:
         target = self._local_path(path)
         if target == Path(target.anchor) or not target.name:
             raise ValueError("请指定文件或子文件夹的路径。")
-        files = WorkspaceFiles(target.parent, allow_protected=True)
+        try:
+            files = WorkspaceFiles(target.parent, allow_protected=True)
+        except FileNotFoundError as error:
+            raise ValueError(f"目标的父目录不存在：{target.parent}。请核对路径。") from error
         files.direct_file_path(target.name)
         return files, target.name
 

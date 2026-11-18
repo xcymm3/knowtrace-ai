@@ -66,7 +66,7 @@ uv run python -m app.features.agent --root "D:\projects\example" --undo "<回退
 启动前可选设 `LOCAL_AGENT_ROOT` 指定另一个 Git 仓库，或设 `LOCAL_AGENT_COMMANDS` 指定验证命令清单。
 如需本机模型档案，可同时设置 `LOCAL_AGENT_MODEL_CONFIG` 和 `LOCAL_AGENT_PROFILE`。
 
-选择「完全访问」后，输入「在 D 盘创建一个空文件夹，名为 AgentDemo」可预览 `D:\AgentDemo`。也可以输入「在桌面新建一个 123.txt」。这两类明确任务无需调用模型。
+选择「完全访问」后，输入「在 D 盘创建一个空文件夹，名为 AgentDemo」可预览 `D:\AgentDemo`。也可以输入 `在桌面上创建一个 note.txt，内容写“小猫”`，执行器会定位当前用户的桌面并预览写入的正文。这两类明确任务无需调用模型。
 确认后执行一次独占创建，遇到同名路径会保留原有内容。
 如需回退，用本地 CLI 指定目标文件或文件夹的父目录为 `--root`，并传入执行记录中的 `--undo` ID。回退前会核对目标版本并要求确认。
 

@@ -174,7 +174,8 @@ class WorkspaceTools:
         if create_file is not None:
             self._definitions["create_file"] = (
                 _CreateFile,
-                "提出创建一个 UTF-8 文件，确认后写入。内容可为空。",
+                "提出创建一个 UTF-8 文件，确认后写入。内容可为空。"
+                + ("在系统桌面创建时使用「桌面/文件名」。" if full_access else ""),
             )
         if create_directory is not None:
             self._definitions["create_directory"] = (
@@ -243,6 +244,10 @@ class WorkspaceTools:
                     )
             except AgentError:
                 raise
+            except FileNotFoundError:
+                result = {"error": "指定的文件或目录不存在，请核对路径。"}
+            except PermissionError:
+                result = {"error": "当前系统账户没有访问指定文件或目录的权限。"}
             except (OSError, RuntimeError):
                 result = {"error": "无法访问指定的本地路径。"}
             except ValueError as error:

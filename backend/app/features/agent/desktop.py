@@ -1,6 +1,7 @@
 import ctypes
 import os
 import re
+from dataclasses import dataclass
 from pathlib import Path
 from uuid import UUID
 
@@ -17,12 +18,38 @@ _REQUESTS = (
         re.IGNORECASE,
     ),
 )
+_CONTENT_REQUEST = re.compile(
+    r"(.+?)[,，;；]\s*(?:文件)?内容\s*(?:写(?:成|入)?|为|是|[:：])\s*[:：]?\s*(.+)",
+    re.DOTALL,
+)
+_QUOTED_CONTENT = re.compile(
+    r"""(?:"([^"]*)"|'([^']*)'|“([^”]*)”|‘([^’]*)’|「([^」]*)」|『([^』]*)』)[。！.!]?"""
+)
 
 
-def desktop_file_request(task: str) -> str | None:
+@dataclass(frozen=True)
+class DesktopFileRequest:
+    name: str
+    content: str = ""
+
+
+def _desktop_name(task: str) -> str | None:
     for pattern in _REQUESTS:
         if match := pattern.fullmatch(task.strip()):
-            return next(name for name in match.groups() if name is not None)
+            return next(value for value in match.groups() if value is not None)
+    return None
+
+
+def desktop_file_request(task: str) -> DesktopFileRequest | None:
+    if name := _desktop_name(task):
+        return DesktopFileRequest(name)
+    if suffix := _CONTENT_REQUEST.fullmatch(task.strip()):
+        request, value = suffix.groups()
+        name = _desktop_name(request)
+        quoted = _QUOTED_CONTENT.fullmatch(value.strip())
+        if name and quoted:
+            content = next(text for text in quoted.groups() if text is not None)
+            return DesktopFileRequest(name, content)
     return None
 
 
